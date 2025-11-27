@@ -1,0 +1,5 @@
+{
+  "name": "Kahoot Clone 2025",
+  "description": "A feature-rich quiz platform with manual creation, Gemini AI generation, and local multiplayer simulation via BroadcastChannel.",
+  "requestFramePermissions": []
+}
