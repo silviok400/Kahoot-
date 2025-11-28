@@ -17,10 +17,10 @@ const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex
 
   if (gameState === GameState.COUNTDOWN) {
       return (
-          <div className="z-10 flex flex-col items-center justify-center min-h-screen">
+          <div className="relative z-10 flex flex-col items-center justify-center min-h-screen">
               <h1 className="text-4xl font-bold mb-8">{quiz.title}</h1>
               <div className="text-[12rem] font-black animate-ping">{timeLeft}</div>
-              <p className="text-2xl mt-8">Get Ready!</p>
+              <p className="text-2xl mt-8">Prepare-se!</p>
           </div>
       )
   }
@@ -28,9 +28,9 @@ const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex
   if (gameState === GameState.LEADERBOARD || gameState === GameState.PODIUM) {
       const isPodium = gameState === GameState.PODIUM;
       return (
-        <div className="z-10 flex flex-col items-center pt-10 min-h-screen w-full max-w-4xl mx-auto">
+        <div className="relative z-10 flex flex-col items-center pt-10 min-h-screen w-full max-w-4xl mx-auto">
             <h1 className="text-4xl font-black bg-white text-indigo-900 px-8 py-2 rounded-lg mb-10">
-                {isPodium ? 'Podium' : 'Scoreboard'}
+                {isPodium ? 'Pódio' : 'Placar'}
             </h1>
             
             <div className="flex flex-col gap-4 w-full px-8">
@@ -50,14 +50,14 @@ const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex
                 onClick={onNext}
                 className="mt-auto mb-10 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105"
             >
-                {isPodium ? 'Back to Menu' : 'Next Question'}
+                {isPodium ? 'Voltar ao Menu' : 'Próxima Pergunta'}
             </button>
         </div>
       );
   }
 
   return (
-    <div className="z-10 flex flex-col h-screen p-4 w-full">
+    <div className="relative z-10 flex flex-col h-screen p-4 w-full">
       {/* Header */}
       <div className="flex justify-between items-start mb-4">
         <div className="bg-white text-black font-bold px-4 py-2 rounded-full text-xl shadow-lg">
@@ -76,7 +76,7 @@ const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex
       {/* Image Area */}
       <div className="flex-1 flex justify-center items-center mb-6 relative">
          <div className="h-full max-h-[40vh] aspect-video bg-black/20 rounded-lg overflow-hidden border-4 border-white/20 shadow-lg">
-             <img src={question.imageUrl} alt="Question" className="w-full h-full object-cover" />
+             <img src={question.imageUrl || "https://picsum.photos/800/400"} alt="Question" className="w-full h-full object-cover" />
          </div>
       </div>
 
@@ -92,7 +92,8 @@ const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex
         ))}
       </div>
 
-      <div className="absolute bottom-4 right-4 text-white/50 font-bold text-xl">
+      {/* Moved to Bottom-Left */}
+      <div className="absolute bottom-4 left-4 text-white/50 font-bold text-xl">
           kahoot-clone-2025
       </div>
     </div>

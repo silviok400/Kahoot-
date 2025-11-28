@@ -1,3 +1,4 @@
+
 export enum GameState {
   MENU = 'MENU',
   CREATE = 'CREATE',
@@ -45,10 +46,13 @@ export interface Player {
 
 export type BroadcastMessage = 
   | { type: 'JOIN'; payload: { nickname: string; id: string } }
+  | { type: 'REQUEST_STATE' } // New client asking for current game state
+  | { type: 'UPDATE_PLAYERS'; payload: Player[] } // Host sending full player list
   | { type: 'SYNC_STATE'; payload: { state: GameState; currentQuestionIndex: number; totalQuestions: number; pin: string } }
   | { type: 'START_GAME'; payload: { totalQuestions: number } }
   | { type: 'QUESTION_START'; payload: { questionIndex: number; timeLimit: number } }
   | { type: 'SUBMIT_ANSWER'; payload: { playerId: string; answerId: string; timeLeft: number } }
+  | { type: 'ANSWER_RESULT'; payload: { playerId: string; isCorrect: boolean; pointsToAdd: number; newStreak: number } }
   | { type: 'TIME_UP' }
   | { type: 'SHOW_LEADERBOARD' }
   | { type: 'GAME_OVER' };

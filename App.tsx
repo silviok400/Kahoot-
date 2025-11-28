@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BroadcastMessage, GameState, Player, Quiz, Shape } from './types';
+import { AUDIO } from './constants';
 import Background from './components/Shared/Background';
 import QuizCreator from './components/Host/QuizCreator';
 import Lobby from './components/Host/Lobby';
@@ -8,33 +9,85 @@ import PlayerView from './components/Player/PlayerView';
 
 const CHANNEL_NAME = 'kahoot-clone-2025';
 
-// Mock Data for scoring calculation
-const calculateScore = (timeLeft: number, totalTime: number) => {
-    // Linear decay: 1000 pts down to 500.
+// Helper to calculate score based on Kahoot algorithm + Streak
+const calculateScore = (timeLeft: number, totalTime: number, streak: number) => {
+    // Basic: Up to 1000 points depending on speed
     const percentage = timeLeft / totalTime;
-    return Math.floor(500 + (percentage * 500));
+    const baseScore = Math.floor(500 + (percentage * 500));
+    
+    // Streak Bonus: +100 per streak level, capped at 500 bonus
+    const streakBonus = Math.min(streak * 100, 500);
+    
+    return baseScore + streakBonus;
 };
 
 const App: React.FC = () => {
-  // App Mode: 'MENU' | 'HOST' | 'PLAYER'
   const [appMode, setAppMode] = useState<'MENU' | 'HOST' | 'PLAYER'>('MENU');
   
-  // Game State (Shared Logic)
+  // Game State
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [pin, setPin] = useState<string>("");
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
+  
+  // Player specific state (only used if appMode === 'PLAYER')
   const [myPlayerId, setMyPlayerId] = useState<string>("");
-
-  // Player Specific
   const [hasAnswered, setHasAnswered] = useState(false);
+  const [myFeedback, setMyFeedback] = useState<{ isCorrect: boolean; points: number; streak: number } | null>(null);
+  const [myScore, setMyScore] = useState(0);
+
+  // Audio
+  const [isMuted, setIsMuted] = useState(false);
+  const bgMusicRef = useRef<HTMLAudioElement | null>(null);
+  const sfxRef = useRef<HTMLAudioElement | null>(null);
 
   // Comms
   const channelRef = useRef<BroadcastChannel | null>(null);
   const timerRef = useRef<any>(null);
 
+  // --- INIT & AUDIO ---
+  useEffect(() => {
+    bgMusicRef.current = new Audio(AUDIO.LOBBY_MUSIC);
+    bgMusicRef.current.loop = true;
+    bgMusicRef.current.volume = 0.3;
+    sfxRef.current = new Audio();
+
+    // Check LocalStorage for existing player session
+    const savedId = localStorage.getItem('kahoot-player-id');
+    if (savedId) {
+        setMyPlayerId(savedId);
+    }
+  }, []);
+
+  const playSfx = (url: string) => {
+      if (isMuted || !sfxRef.current) return;
+      sfxRef.current.src = url;
+      sfxRef.current.currentTime = 0;
+      sfxRef.current.play().catch(e => console.log("Audio play failed (interaction needed)", e));
+  };
+
+  const toggleMute = () => {
+      setIsMuted(!isMuted);
+      if (bgMusicRef.current) {
+          bgMusicRef.current.muted = !isMuted;
+      }
+  };
+
+  useEffect(() => {
+    if (!bgMusicRef.current || isMuted) return;
+
+    if (appMode === 'HOST' && (gameState === GameState.LOBBY || gameState === GameState.LEADERBOARD)) {
+        bgMusicRef.current.play().catch(() => {});
+    } else if (gameState === GameState.COUNTDOWN || gameState === GameState.QUESTION) {
+        bgMusicRef.current.pause(); 
+    } else {
+        bgMusicRef.current.pause();
+    }
+  }, [gameState, appMode, isMuted]);
+
+  // --- BROADCAST SYSTEM ---
   useEffect(() => {
     channelRef.current = new BroadcastChannel(CHANNEL_NAME);
     
@@ -48,11 +101,24 @@ const App: React.FC = () => {
         }
     };
 
+    // If I just opened as player, ask for state
+    if (appMode === 'PLAYER') {
+        setTimeout(() => broadcast({ type: 'REQUEST_STATE' }), 500);
+    }
+
     return () => {
         channelRef.current?.close();
         if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [appMode, players, gameState, currentQIndex]);
+  }, [appMode]); 
+
+  // --- SYNC PLAYERS HOST -> CLIENT ---
+  useEffect(() => {
+    if (appMode === 'HOST' && players.length > 0) {
+        broadcast({ type: 'UPDATE_PLAYERS', payload: players });
+    }
+  }, [players, appMode]);
+
 
   // --- HOST LOGIC ---
 
@@ -62,59 +128,77 @@ const App: React.FC = () => {
     setPin(newPin);
     setGameState(GameState.LOBBY);
     setAppMode('HOST');
-    broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LOBBY, currentQuestionIndex: 0, totalQuestions: createdQuiz.questions.length, pin: newPin } });
+    // Initial broadcast
+    setTimeout(() => {
+        broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LOBBY, currentQuestionIndex: 0, totalQuestions: createdQuiz.questions.length, pin: newPin } });
+    }, 500);
   };
 
   const handleHostMessages = (msg: BroadcastMessage) => {
     if (msg.type === 'JOIN') {
         setPlayers(prev => {
             if (prev.find(p => p.id === msg.payload.id)) return prev;
+            playSfx(AUDIO.CORRECT); 
             return [...prev, { id: msg.payload.id, nickname: msg.payload.nickname, score: 0, streak: 0 }];
         });
+    } else if (msg.type === 'REQUEST_STATE') {
+        // A new player joined or refreshed, send them the current state
+        if (quiz && pin) {
+            broadcast({ type: 'SYNC_STATE', payload: { state: gameState, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+            broadcast({ type: 'UPDATE_PLAYERS', payload: players });
+        }
     } else if (msg.type === 'SUBMIT_ANSWER') {
         const { playerId, answerId, timeLeft: answerTime } = msg.payload;
-        // Logic to calculate score handled in end of round, just store answer for now?
-        // Actually, we need to know correctness immediately to update player state (though hidden)
-        setPlayers(prev => prev.map(p => {
-            if (p.id !== playerId) return p;
+        
+        setPlayers(prev => {
+            const playerIndex = prev.findIndex(p => p.id === playerId);
+            if (playerIndex === -1) return prev;
             
-            // Find if correct
+            const player = prev[playerIndex];
             const currentQ = quiz?.questions[currentQIndex];
-            if (!currentQ) return p;
+            
+            if (!currentQ) return prev;
 
-            // Map shape to answer index (0-3) roughly or find by ID if we passed ID. 
-            // Simplified: we expect the client sends the Shape, and we match shape to answer.
-            // Wait, payload says answerId. 
-            // Let's assume the client sends the SHAPE, mapping it here.
-            
-            // Correction: Client sends Shape in `submitAnswer` below, but message payload says `answerId`.
-            // Let's just pass the correctness from client? No, insecure.
-            // Host determines correctness.
-            
-            // Re-finding answer by ID is hard without flattening.
-            // Let's assume answerId is the shape for simplicity in this demo.
             const answerShape = answerId as unknown as Shape; 
-            const isCorrect = currentQ.answers.find(a => a.shape === answerShape)?.isCorrect;
+            const isCorrect = currentQ.answers.find(a => a.shape === answerShape)?.isCorrect || false;
             
-            const points = isCorrect ? calculateScore(answerTime, currentQ.timeLimit) : 0;
-            const newStreak = isCorrect ? p.streak + 1 : 0;
+            const currentStreak = isCorrect ? player.streak + 1 : 0;
+            const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak) : 0;
 
-            return {
-                ...p,
-                score: p.score + points,
-                streak: newStreak,
+            broadcast({ 
+                type: 'ANSWER_RESULT', 
+                payload: { 
+                    playerId, 
+                    isCorrect, 
+                    pointsToAdd, 
+                    newStreak: currentStreak 
+                } 
+            });
+
+            const newPlayers = [...prev];
+            newPlayers[playerIndex] = {
+                ...player,
+                score: player.score + pointsToAdd,
+                streak: currentStreak,
                 lastAnswerCorrect: isCorrect
             };
-        }));
+            return newPlayers;
+        });
     }
   };
 
   const hostStartGame = () => {
+      hostStartCountdown();
+  };
+
+  const hostStartCountdown = () => {
+      playSfx(AUDIO.COUNTDOWN);
       setGameState(GameState.COUNTDOWN);
       setTimeLeft(5);
-      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: 0, totalQuestions: quiz!.questions.length, pin } });
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: currentQIndex, totalQuestions: quiz!.questions.length, pin } });
       
       let count = 5;
+      if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
           count--;
           setTimeLeft(count);
@@ -133,6 +217,7 @@ const App: React.FC = () => {
       broadcast({ type: 'QUESTION_START', payload: { questionIndex: currentQIndex, timeLimit: q.timeLimit } });
 
       let count = q.timeLimit;
+      if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
           count--;
           setTimeLeft(count);
@@ -144,6 +229,7 @@ const App: React.FC = () => {
   };
 
   const hostShowLeaderboard = () => {
+      playSfx(AUDIO.TIME_UP);
       setGameState(GameState.LEADERBOARD);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz!.questions.length, pin } });
   };
@@ -154,19 +240,7 @@ const App: React.FC = () => {
           broadcast({ type: 'SYNC_STATE', payload: { state: GameState.PODIUM, currentQuestionIndex: currentQIndex, totalQuestions: quiz!.questions.length, pin } });
       } else {
           setCurrentQIndex(prev => prev + 1);
-          setGameState(GameState.COUNTDOWN);
-          setTimeLeft(5);
-          broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: currentQIndex + 1, totalQuestions: quiz!.questions.length, pin } });
-          
-          let count = 5;
-          timerRef.current = setInterval(() => {
-            count--;
-            setTimeLeft(count);
-            if (count <= 0) {
-                clearInterval(timerRef.current);
-                hostStartQuestion();
-            }
-        }, 1000);
+          hostStartCountdown();
       }
   };
 
@@ -179,56 +253,85 @@ const App: React.FC = () => {
   const handlePlayerMessages = (msg: BroadcastMessage) => {
       if (msg.type === 'SYNC_STATE') {
           setGameState(msg.payload.state);
-          // If we just entered QUESTION state, reset answer
+          // If we receive state, we can also imply the PIN if needed, 
+          // but mainly we update UI mode
+          
           if (msg.payload.state === GameState.QUESTION) {
               setHasAnswered(false);
+              setMyFeedback(null); 
           }
-          if (msg.payload.state === GameState.LEADERBOARD || msg.payload.state === GameState.PODIUM) {
-              // Usually we'd get our score here from the payload, but we don't have per-user payload targeting in BroadcastChannel easily
-              // so we rely on the host updating the 'players' list... wait, the players list is in Host state.
-              // Client needs to fetch score? 
-              // Simplification: In a real app, socket sends "YOUR_SCORE". 
-              // Here, we can't easily sync the full player list constantly without huge payloads.
-              // Let's assume the 'SYNC_STATE' triggers a fetch or we send score updates separately.
-              // For this demo: The player calculates their own 'estimated' score or we just don't show specific score on client until we fix syncing.
-              // Fix: Let's broadcast the full player list on Leaderboard state.
+          if (msg.payload.state === GameState.LOBBY) {
+              setMyScore(0);
           }
       } 
-      // Very crude Sync for demo: Host sends nothing about scores?
-      // Let's add a sync listeners
+      else if (msg.type === 'UPDATE_PLAYERS') {
+          // IMPORTANT: Update local list of players so we can find ourselves
+          setPlayers(msg.payload);
+          
+          // Update my own score from server truth
+          const me = msg.payload.find(p => p.id === myPlayerId);
+          if (me) {
+              setMyScore(me.score);
+          }
+      }
+      else if (msg.type === 'ANSWER_RESULT') {
+          if (msg.payload.playerId === myPlayerId) {
+              setMyFeedback({
+                  isCorrect: msg.payload.isCorrect,
+                  points: msg.payload.pointsToAdd,
+                  streak: msg.payload.newStreak
+              });
+              if (msg.payload.isCorrect) playSfx(AUDIO.CORRECT);
+              else playSfx(AUDIO.WRONG);
+          }
+      }
   };
-
-  // Correction: To show scores on client, we need the player list.
-  // Let's pass the player list in SYNC_STATE for this simple local demo.
-  // (In production, this is too much data, but for 50 players locally it's fine).
   
   const playerJoin = (nickname: string) => {
-      const id = `p-${Date.now()}`;
-      setMyPlayerId(id);
+      let id = myPlayerId;
+      if (!id) {
+        id = `p-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+        setMyPlayerId(id);
+        localStorage.setItem('kahoot-player-id', id);
+      }
       broadcast({ type: 'JOIN', payload: { nickname, id } });
-      // We assume success
-      setGameState(GameState.LOBBY);
+      // We don't manually set GameState.LOBBY here anymore.
+      // We wait for the Host to send UPDATE_PLAYERS or SYNC_STATE
+      // But for better UX, we can set a "Connecting..." state or temporary lobby
+      setGameState(GameState.LOBBY); 
   };
 
   const playerSubmit = (shape: Shape) => {
       if (hasAnswered) return;
       setHasAnswered(true);
-      // We send the shape as the ID for simplicity in this demo
       broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft } }); 
   };
-  
-  // HACK: To make leaderboard work on client, we need to sync players array
-  // We'll use a side-effect in Host to broadcast players when state changes to leaderboard
-  useEffect(() => {
-      if (appMode === 'HOST' && (gameState === GameState.LEADERBOARD || gameState === GameState.PODIUM)) {
-          // Send a custom message or just rely on the UI being on Host mainly. 
-          // Clients usually just see "Correct/Incorrect" and their rank.
-          // We will calculate rank on Host and display on Host. Client just sees "You answered".
-          // For the "Player View" to show score, we'd need a dedicated sync. 
-          // Let's skip complex client-side scoreboard for the MVP to fit constraints.
-      }
-  }, [gameState, appMode]);
 
+  // --- NAVIGATION LOGIC ---
+  const handleBackToMenu = () => {
+    const isHost = appMode === 'HOST';
+    // If we are a host and have moved past the initial menu (e.g. creating quiz or lobby)
+    // Or if we are a player and are joined
+    const isPlayerJoined = appMode === 'PLAYER' && players.some(p => p.id === myPlayerId);
+
+    if (isHost || isPlayerJoined) {
+        if (!window.confirm("Tem certeza que deseja sair? O progresso atual do jogo será perdido.")) {
+            return;
+        }
+    }
+
+    setAppMode('MENU');
+    setGameState(GameState.MENU);
+    setQuiz(null);
+    setPin("");
+    setPlayers([]);
+    setCurrentQIndex(0);
+    setTimeLeft(0);
+    setMyFeedback(null);
+    setHasAnswered(false);
+    // We do not clear myPlayerId to allow rejoining easily
+    if (bgMusicRef.current) bgMusicRef.current.pause();
+  };
 
   // --- RENDER ---
 
@@ -236,41 +339,79 @@ const App: React.FC = () => {
       return (
         <div className="relative min-h-screen font-sans text-white overflow-hidden flex flex-col items-center justify-center">
             <Background />
-            <div className="z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full">
+            <div className="relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full">
                 <h1 className="text-6xl font-black mb-2 tracking-tight">Kahoot!</h1>
-                <p className="text-xl mb-12 opacity-80 font-bold text-purple-200">2025 Clone Experience</p>
+                <p className="text-xl mb-12 opacity-80 font-bold text-purple-200">Experiência Clone 2025</p>
                 
                 <div className="flex flex-col gap-4">
                     <button 
-                        onClick={() => setAppMode('HOST')}
+                        onClick={() => {
+                            setAppMode('HOST');
+                            setGameState(GameState.CREATE);
+                        }}
                         className="bg-white text-indigo-900 font-black text-xl py-4 rounded shadow-lg hover:scale-105 transition-transform"
                     >
-                        Host Game
+                        Hospedar Jogo
                     </button>
                     <button 
                         onClick={() => setAppMode('PLAYER')}
                         className="bg-indigo-600 border-2 border-indigo-400 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-indigo-500 transition-colors"
                     >
-                        Join Game
+                        Entrar no Jogo
                     </button>
                 </div>
                 <p className="mt-8 text-xs text-white/40">
-                    Note: Use multiple tabs to simulate Host & Players locally.<br/>
-                    Powered by React & Gemini.
+                    Hospede em um dispositivo, entre em outros usando o mesmo Wi-Fi.<br/>
+                    Desenvolvido com React.
                 </p>
             </div>
         </div>
       );
   }
 
+  // Common Back Button Logic
+  const shouldShowBackButton = () => {
+      // Host: Never show back button once we leave MENU
+      if (appMode === 'HOST') return false;
+      
+      // Player: Show only if NOT joined yet (still on PIN screen)
+      if (appMode === 'PLAYER') {
+         const isJoined = players.some(p => p.id === myPlayerId);
+         return !isJoined;
+      }
+      return true;
+  };
+
+  const BackButton = () => (
+    <button 
+        onClick={handleBackToMenu}
+        className="absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2"
+    >
+        <span>←</span> Voltar
+    </button>
+  );
+
+  // --- HOST VIEW ---
   if (appMode === 'HOST') {
       return (
-        <div className="relative min-h-screen text-white overflow-hidden">
+        <div className="relative min-h-screen text-white overflow-hidden flex flex-col">
              <Background />
-             {gameState === GameState.MENU ? (
-                 <QuizCreator onSave={startHost} onCancel={() => setAppMode('MENU')} />
+             {shouldShowBackButton() && <BackButton />}
+             {/* Mute Button moved to bottom-right to avoid header overlap */}
+             <div className="absolute bottom-4 right-4 z-50">
+                <button 
+                    onClick={toggleMute} 
+                    className="bg-white/20 p-3 rounded-full hover:bg-white/40 transition-colors shadow-lg border border-white/10"
+                    title={isMuted ? "Ativar som" : "Mudo"}
+                >
+                    {isMuted ? '🔇' : '🔊'}
+                </button>
+             </div>
+
+             {gameState === GameState.CREATE ? (
+                 <QuizCreator onSave={startHost} onCancel={handleBackToMenu} />
              ) : gameState === GameState.LOBBY ? (
-                 <Lobby pin={pin} players={players} onStart={hostStartGame} />
+                 <Lobby pin={pin} players={players} onStart={hostStartGame} onCancel={handleBackToMenu} />
              ) : (
                  <HostGame 
                     quiz={quiz!} 
@@ -285,18 +426,25 @@ const App: React.FC = () => {
       );
   }
 
-  // Player Mode
+  // --- PLAYER VIEW ---
+  // Find my nickname from the synced list
+  const myPlayer = players.find(p => p.id === myPlayerId);
+  const myNickname = myPlayer ? myPlayer.nickname : "";
+  const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
+
   return (
     <div className="relative min-h-screen text-white overflow-hidden">
         <Background />
+        {shouldShowBackButton() && <BackButton />}
         <PlayerView 
             onJoin={playerJoin} 
             onSubmit={playerSubmit} 
             gameState={gameState} 
             hasAnswered={hasAnswered}
-            score={0} // Placeholder, real sync requires more complex context
-            place={0} // Placeholder
-            nickname={players.find(p => p.id === myPlayerId)?.nickname || ""}
+            score={myScore}
+            place={myRank}
+            nickname={myNickname} 
+            feedback={myFeedback}
         />
     </div>
   );
