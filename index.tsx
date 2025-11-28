@@ -909,6 +909,14 @@ const App = () => {
   useEffect(() => { quizRef.current = quiz; }, [quiz]);
   const qIndexRef = useRef(currentQIndex);
   useEffect(() => { qIndexRef.current = currentQIndex; }, [currentQIndex]);
+  const myPlayerIdRef = useRef(myPlayerId);
+  useEffect(() => { myPlayerIdRef.current = myPlayerId; }, [myPlayerId]);
+  const playersRef = useRef(players);
+  useEffect(() => { playersRef.current = players; }, [players]);
+  const pinRef = useRef(pin);
+  useEffect(() => { pinRef.current = pin; }, [pin]);
+  const gameStateRef = useRef(gameState);
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
   useEffect(() => {
     bgMusicRef.current = new Audio(AUDIO.LOBBY_MUSIC);
@@ -1022,9 +1030,9 @@ const App = () => {
     } else if (msg.type === 'LEAVE') {
         setPlayers(prev => prev.filter(p => p.id !== msg.payload.playerId));
     } else if (msg.type === 'REQUEST_STATE') {
-        if (quiz && pin) {
-            broadcast({ type: 'SYNC_STATE', payload: { state: gameState, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
-            broadcast({ type: 'UPDATE_PLAYERS', payload: players });
+        if (quizRef.current && pinRef.current) {
+            broadcast({ type: 'SYNC_STATE', payload: { state: gameStateRef.current, currentQuestionIndex: qIndexRef.current, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
+            broadcast({ type: 'UPDATE_PLAYERS', payload: playersRef.current });
         }
     } else if (msg.type === 'SUBMIT_ANSWER') {
         const { playerId, answerId, timeLeft: answerTime } = msg.payload;
@@ -1168,13 +1176,13 @@ const App = () => {
       } 
       else if (msg.type === 'UPDATE_PLAYERS') {
           setPlayers(msg.payload);
-          const me = msg.payload.find(p => p.id === myPlayerId);
+          const me = msg.payload.find(p => p.id === myPlayerIdRef.current);
           if (me) {
               setMyScore(me.score);
           }
       }
       else if (msg.type === 'ANSWER_RESULT') {
-          if (msg.payload.playerId === myPlayerId) {
+          if (msg.payload.playerId === myPlayerIdRef.current) {
               setMyFeedback({
                   isCorrect: msg.payload.isCorrect,
                   points: msg.payload.pointsToAdd,
