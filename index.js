@@ -1,3 +1,4 @@
+
 // --- IMPORTS ---
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
@@ -528,45 +529,49 @@ const VirtualJoystick = ({ onMove }) => {
     const joystickRef = useRef(null);
     const knobRef = useRef(null);
     const [isActive, setIsActive] = useState(false);
-    const lastSendTime = useRef(0);
-    const animationFrameId = useRef(null);
     
-    // We use refs for position to avoid React render cycles slowing down the drag
-    const position = useRef({ x: 0, y: 0 });
+    // CURRENT input state (updated immediately by touch)
+    const currentVector = useRef({ x: 0, y: 0 });
+    // LAST SENT state (updated by network loop)
+    const lastSentVector = useRef({ x: 0, y: 0 });
 
+    // 1. INPUT LOOP (Runs as fast as possible to update UI)
     useEffect(() => {
         const joystick = joystickRef.current;
         if (!joystick) return;
 
         const handleStart = (e) => {
-            // Prevent default behavior to stop scrolling/zooming
             if (e.cancelable) e.preventDefault();
             setIsActive(true);
-            updatePosition(e);
+            updateVisualsAndVector(e);
         };
 
         const handleMove = (e) => {
-            if (!isActive && !e.type.startsWith('touch')) return; // For mouse, only move if active
-            // For touch, if we are here, it's active because we bound the listener
+            if (!isActive && !e.type.startsWith('touch')) return;
             if (e.cancelable) e.preventDefault();
-            updatePosition(e);
+            updateVisualsAndVector(e);
         };
 
         const handleEnd = (e) => {
             if (e.cancelable) e.preventDefault();
             setIsActive(false);
-            position.current = { x: 0, y: 0 };
             
-            // Visual Reset
+            // Reset Vector Logic
+            currentVector.current = { x: 0, y: 0 };
+            
+            // Reset Visuals
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(0px, 0px)`;
             }
             
-            // Logic Reset
-            onMove({ x: 0, y: 0 });
+            // Force immediate send to stop player
+            if (lastSentVector.current.x !== 0 || lastSentVector.current.y !== 0) {
+                onMove({ x: 0, y: 0 });
+                lastSentVector.current = { x: 0, y: 0 };
+            }
         };
 
-        const updatePosition = (e) => {
+        const updateVisualsAndVector = (e) => {
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
@@ -586,32 +591,22 @@ const VirtualJoystick = ({ onMove }) => {
                 dy = Math.sin(angle) * maxRadius;
             }
 
-            // Visual Update (Direct DOM manipulation for performance)
+            // Visual Update (Direct DOM manipulation)
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
             }
 
-            // Logic Update (Throttled)
-            const now = Date.now();
-            if (now - lastSendTime.current > 100) { // Changed to 100ms to avoid network rate limiting
-                const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
-                const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
-                onMove({ x: normalizedX, y: normalizedY });
-                lastSendTime.current = now;
-            }
+            // Update Current Vector Ref
+            const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
+            const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
+            currentVector.current = { x: normalizedX, y: normalizedY };
         };
 
-        // Attach listeners directly to DOM to support { passive: false }
         joystick.addEventListener('touchstart', handleStart, { passive: false });
         joystick.addEventListener('mousedown', handleStart);
         
-        // Window listeners for move/end to capture dragging outside element
-        const handleWindowMove = (e) => {
-            if (isActive) handleMove(e);
-        };
-        const handleWindowEnd = (e) => {
-            if (isActive) handleEnd(e);
-        };
+        const handleWindowMove = (e) => { if (isActive) handleMove(e); };
+        const handleWindowEnd = (e) => { if (isActive) handleEnd(e); };
 
         window.addEventListener('touchmove', handleWindowMove, { passive: false });
         window.addEventListener('touchend', handleWindowEnd);
@@ -626,7 +621,26 @@ const VirtualJoystick = ({ onMove }) => {
             window.removeEventListener('mousemove', handleWindowMove);
             window.removeEventListener('mouseup', handleWindowEnd);
         };
-    }, [isActive, onMove]); // Re-bind if isActive changes (simple state machine)
+    }, [isActive]); // Re-bind on active state change
+
+    // 2. NETWORK LOOP (Runs at fixed interval to send data)
+    useEffect(() => {
+        // 50ms interval = 20 updates per second (Smooth enough, low bandwidth)
+        const intervalId = setInterval(() => {
+            const curr = currentVector.current;
+            const last = lastSentVector.current;
+
+            // Only send if different (with small epsilon for float drift)
+            if (Math.abs(curr.x - last.x) > 0.05 || Math.abs(curr.y - last.y) > 0.05) {
+                onMove(curr);
+                lastSentVector.current = curr;
+            } 
+            // Also send if active and we haven't sent in a while (keep-alive roughly) 
+            // but the above check is usually enough for movement.
+        }, 50);
+
+        return () => clearInterval(intervalId);
+    }, [onMove]);
 
     return (
         React.createElement('div', { 
@@ -733,7 +747,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         }
 
         // 3. Update Physics & Collision
-        const speed = 0.6; // slightly faster speed per frame
+        const speed = 0.8; // Increased speed for better responsiveness (was 0.6)
         const radius = playerSizeVw / 2; // Radius in VW (approximation)
         
         const nextPos = { ...positionsRef.current };
