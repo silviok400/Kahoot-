@@ -658,8 +658,11 @@ const VirtualJoystick = ({ onMove }) => {
 const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     const [timeLeft, setTimeLeft] = useState(30);
     const [gameItems, setGameItems] = useState([]);
-    const [playerPositions, setPlayerPositions] = useState({});
+    const [renderPositions, setRenderPositions] = useState({});
     
+    // Refs for physics loop (avoids React state batching issues)
+    const positionsRef = useRef({});
+
     // Dynamic Player Size Calculation
     const playerSizeVw = useMemo(() => {
         const count = Math.max(players.length, 1);
@@ -670,10 +673,6 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     const requestRef = useRef();
     const startTimeRef = useRef(Date.now());
     const lastItemSpawn = useRef(0);
-    
-    // Players ref for game loop access
-    const playersRef = useRef(players);
-    useEffect(() => { playersRef.current = players; }, [players]);
     
     // Initialize positions
     useEffect(() => {
@@ -687,18 +686,16 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
             };
         });
-        setPlayerPositions(initialPos);
+        positionsRef.current = initialPos;
+        setRenderPositions(initialPos);
     }, []); // Run once on mount
 
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
-            setPlayerPositions(prev => {
-                if (!prev[playerId]) return prev;
-                return {
-                    ...prev,
-                    [playerId]: { ...prev[playerId], vx: vec.x, vy: vec.y }
-                };
-            });
+            if (positionsRef.current[playerId]) {
+                positionsRef.current[playerId].vx = vec.x;
+                positionsRef.current[playerId].vy = vec.y;
+            }
         };
         return () => { window.updatePlayerVelocity = null; };
     }, []);
@@ -739,15 +736,17 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             lastItemSpawn.current = now;
         }
 
-        // 3. Update Physics & Collision
-        setPlayerPositions(prevPos => {
-            const nextPos = { ...prevPos };
-            const speed = 0.6; // slightly faster speed per frame
-            const radius = playerSizeVw / 2; // Radius in VW (approximation)
-            
-            // Move players
-            Object.keys(nextPos).forEach(pid => {
-                const p = nextPos[pid];
+        // 3. Update Physics & Collision using REF for smoothness
+        const speed = 0.6; // slightly faster speed per frame
+        const radius = playerSizeVw / 2; // Radius in VW (approximation)
+        
+        const nextPos = { ...positionsRef.current };
+        let hasChanges = false;
+        
+        // Move players
+        Object.keys(nextPos).forEach(pid => {
+            const p = nextPos[pid];
+            if (p.vx !== 0 || p.vy !== 0) {
                 let nx = p.x + (p.vx * speed);
                 let ny = p.y + (p.vy * speed);
                 
@@ -756,45 +755,58 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 ny = Math.max(radius, Math.min(100 - radius, ny));
                 
                 nextPos[pid] = { ...p, x: nx, y: ny };
-            });
+                hasChanges = true;
+            }
+        });
+        
+        // Save back to ref
+        positionsRef.current = nextPos;
 
-            // Check Collisions
-            setGameItems(prevItems => {
-                const survivingItems = [];
-                const scoresToUpdate = {};
+        // Check Collisions (Needs to interact with State for Items)
+        setGameItems(prevItems => {
+            const survivingItems = [];
+            const scoresToUpdate = {};
+            let itemsChanged = false;
 
-                prevItems.forEach(item => {
-                    let collected = false;
-                    Object.keys(nextPos).forEach(pid => {
-                        if (collected) return;
-                        const p = nextPos[pid];
-                        
-                        const dx = (p.x - item.x);
-                        const dy = (p.y - item.y) * (16/9); 
-                        const dist = Math.sqrt(dx*dx + dy*dy);
-                        
-                        if (dist < (radius + item.size/2)) { 
-                            collected = true;
-                            if (!scoresToUpdate[pid]) scoresToUpdate[pid] = 0;
-                            scoresToUpdate[pid] += item.value;
-                        }
-                    });
-
-                    if (!collected) {
-                        if (now - item.id > 10000) return; // 10s lifetime
-                        survivingItems.push(item);
+            prevItems.forEach(item => {
+                let collected = false;
+                Object.keys(nextPos).forEach(pid => {
+                    if (collected) return;
+                    const p = nextPos[pid];
+                    
+                    const dx = (p.x - item.x);
+                    const dy = (p.y - item.y) * (16/9); 
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < (radius + item.size/2)) { 
+                        collected = true;
+                        if (!scoresToUpdate[pid]) scoresToUpdate[pid] = 0;
+                        scoresToUpdate[pid] += item.value;
                     }
                 });
 
-                if (Object.keys(scoresToUpdate).length > 0) {
-                    onUpdateScores(scoresToUpdate);
+                if (!collected) {
+                    if (now - item.id > 10000) {
+                        itemsChanged = true; // expired
+                        return;
+                    }
+                    survivingItems.push(item);
+                } else {
+                    itemsChanged = true;
                 }
-
-                return survivingItems;
             });
 
-            return nextPos;
+            if (Object.keys(scoresToUpdate).length > 0) {
+                onUpdateScores(scoresToUpdate);
+            }
+
+            return itemsChanged ? survivingItems : prevItems;
         });
+
+        // Trigger render if needed
+        if (hasChanges) {
+            setRenderPositions(nextPos);
+        }
 
         if (timeLeft > 0) {
             requestRef.current = requestAnimationFrame(animate);
@@ -846,8 +858,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             )),
 
             // Players
-            Object.keys(playerPositions).map(pid => {
-                const p = playerPositions[pid];
+            Object.keys(renderPositions).map(pid => {
+                const p = renderPositions[pid];
                 const playerInfo = players.find(pl => pl.id === pid);
                 return React.createElement('div', {
                     key: pid,
@@ -1691,6 +1703,7 @@ const App = () => {
   const timerRef = useRef(null);
   const playerTimerRef = useRef(null);
   const playerTimeLeftRef = useRef(0);
+  const myFeedbackRef = useRef(null);
 
   // Refs to hold current state for callbacks, preventing stale state issues.
   const quizRef = useRef(quiz);
@@ -2033,9 +2046,19 @@ const App = () => {
   const handlePlayerMessages = (msg) => {
       if (msg.type === 'SYNC_STATE') {
           setGameState(msg.payload.state);
+          
+          // Sound trigger logic: Only play feedback sound when entering ANSWER_REVEAL state
+          if (msg.payload.state === GameState.ANSWER_REVEAL) {
+             if (myFeedbackRef.current) {
+                 if (myFeedbackRef.current.isCorrect) playSfx(AUDIO.CORRECT);
+                 else playSfx(AUDIO.WRONG);
+             }
+          }
+
           if (msg.payload.state === GameState.QUESTION || msg.payload.state === GameState.COUNTDOWN) {
               setHasAnswered(false);
               setMyFeedback(null); 
+              myFeedbackRef.current = null;
           }
           if (msg.payload.state === GameState.LOBBY) {
               setMyScore(0);
@@ -2053,13 +2076,20 @@ const App = () => {
       }
       else if (msg.type === 'ANSWER_RESULT') {
           if (msg.payload.playerId === myPlayerIdRef.current) {
-              setMyFeedback({
+              const fb = {
                   isCorrect: msg.payload.isCorrect,
                   points: msg.payload.pointsToAdd,
                   streak: msg.payload.newStreak
-              });
-              if (msg.payload.isCorrect) playSfx(AUDIO.CORRECT);
-              else playSfx(AUDIO.WRONG);
+              };
+              setMyFeedback(fb);
+              myFeedbackRef.current = fb;
+              
+              // If we are late and state is already ANSWER_REVEAL, play sound now
+              if (gameStateRef.current === GameState.ANSWER_REVEAL) {
+                   if (fb.isCorrect) playSfx(AUDIO.CORRECT);
+                   else playSfx(AUDIO.WRONG);
+              }
+              // Otherwise wait for SYNC_STATE to ANSWER_REVEAL
           }
       }
       else if (msg.type === 'QUESTION_START') {
@@ -2143,6 +2173,7 @@ const App = () => {
     setCurrentQIndex(0);
     setTimeLeft(0);
     setMyFeedback(null);
+    myFeedbackRef.current = null;
     setHasAnswered(false);
     setMyScore(0);
     if (bgMusicRef.current) {
