@@ -6,11 +6,11 @@ import { createClient } from "@supabase/supabase-js";
 
 declare global {
     interface Window {
-        updatePlayerVelocity: ((playerId: any, vec: any) => void) | null;
+        updatePlayerVelocity: ((playerId: string, vec: { x: number; y: number }) => void) | null;
     }
 }
 
-// --- From types.ts (Converted to JS constants where necessary) ---
+// --- From types.ts ---
 const GameState = {
     MENU: 'MENU',
     CREATE: 'CREATE',
@@ -20,7 +20,7 @@ const GameState = {
     ANSWER_REVEAL: 'ANSWER_REVEAL',
     LEADERBOARD: 'LEADERBOARD',
     PODIUM: 'PODIUM',
-    MINIGAME: 'MINIGAME',
+    MINIGAME: 'MINIGAME', // New state for the bonus game
 };
 const Shape = {
     TRIANGLE: 'triangle', // Red
@@ -48,7 +48,7 @@ const AUDIO = {
   CORRECT: 'https://cdn.pixabay.com/audio/2021/08/04/audio_0625c153e2.mp3',
   WRONG: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c6ccf3232f.mp3',
   TIME_UP: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
-  BONUS_MUSIC: 'https://cdn.pixabay.com/audio/2021/09/06/audio_98777e4242.mp3',
+  BONUS_MUSIC: 'https://cdn.pixabay.com/audio/2021/09/06/audio_98777e4242.mp3', // Funky music for bonus
   COLLECT: 'https://cdn.pixabay.com/audio/2022/03/24/audio_c8c2a382aa.mp3',
   EXPLOSION: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
 };
@@ -534,49 +534,45 @@ const VirtualJoystick = ({ onMove }) => {
     const joystickRef = useRef(null);
     const knobRef = useRef(null);
     const [isActive, setIsActive] = useState(false);
+    const lastSendTime = useRef(0);
+    const animationFrameId = useRef(null);
     
-    // CURRENT input state (updated immediately by touch)
-    const currentVector = useRef({ x: 0, y: 0 });
-    // LAST SENT state (updated by network loop)
-    const lastSentVector = useRef({ x: 0, y: 0 });
+    // We use refs for position to avoid React render cycles slowing down the drag
+    const position = useRef({ x: 0, y: 0 });
 
-    // 1. INPUT LOOP (Runs as fast as possible to update UI)
     useEffect(() => {
         const joystick = joystickRef.current;
         if (!joystick) return;
 
         const handleStart = (e) => {
+            // Prevent default behavior to stop scrolling/zooming
             if (e.cancelable) e.preventDefault();
             setIsActive(true);
-            updateVisualsAndVector(e);
+            updatePosition(e);
         };
 
         const handleMove = (e) => {
-            if (!isActive && !e.type.startsWith('touch')) return;
+            if (!isActive && !e.type.startsWith('touch')) return; // For mouse, only move if active
+            // For touch, if we are here, it's active because we bound the listener
             if (e.cancelable) e.preventDefault();
-            updateVisualsAndVector(e);
+            updatePosition(e);
         };
 
         const handleEnd = (e) => {
             if (e.cancelable) e.preventDefault();
             setIsActive(false);
+            position.current = { x: 0, y: 0 };
             
-            // Reset Vector Logic
-            currentVector.current = { x: 0, y: 0 };
-            
-            // Reset Visuals
+            // Visual Reset
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(0px, 0px)`;
             }
             
-            // Force immediate send to stop player
-            if (lastSentVector.current.x !== 0 || lastSentVector.current.y !== 0) {
-                onMove({ x: 0, y: 0 });
-                lastSentVector.current = { x: 0, y: 0 };
-            }
+            // Logic Reset
+            onMove({ x: 0, y: 0 });
         };
 
-        const updateVisualsAndVector = (e) => {
+        const updatePosition = (e) => {
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
@@ -596,22 +592,32 @@ const VirtualJoystick = ({ onMove }) => {
                 dy = Math.sin(angle) * maxRadius;
             }
 
-            // Visual Update (Direct DOM manipulation)
+            // Visual Update (Direct DOM manipulation for performance)
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
             }
 
-            // Update Current Vector Ref
-            const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
-            const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
-            currentVector.current = { x: normalizedX, y: normalizedY };
+            // Logic Update (Throttled)
+            const now = Date.now();
+            if (now - lastSendTime.current > 30) {
+                const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
+                const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
+                onMove({ x: normalizedX, y: normalizedY });
+                lastSendTime.current = now;
+            }
         };
 
+        // Attach listeners directly to DOM to support { passive: false }
         joystick.addEventListener('touchstart', handleStart, { passive: false });
         joystick.addEventListener('mousedown', handleStart);
         
-        const handleWindowMove = (e) => { if (isActive) handleMove(e); };
-        const handleWindowEnd = (e) => { if (isActive) handleEnd(e); };
+        // Window listeners for move/end to capture dragging outside element
+        const handleWindowMove = (e) => {
+            if (isActive) handleMove(e);
+        };
+        const handleWindowEnd = (e) => {
+            if (isActive) handleEnd(e);
+        };
 
         window.addEventListener('touchmove', handleWindowMove, { passive: false });
         window.addEventListener('touchend', handleWindowEnd);
@@ -626,26 +632,7 @@ const VirtualJoystick = ({ onMove }) => {
             window.removeEventListener('mousemove', handleWindowMove);
             window.removeEventListener('mouseup', handleWindowEnd);
         };
-    }, [isActive]); // Re-bind on active state change
-
-    // 2. NETWORK LOOP (Runs at fixed interval to send data)
-    useEffect(() => {
-        // 50ms interval = 20 updates per second (Smooth enough, low bandwidth)
-        const intervalId = setInterval(() => {
-            const curr = currentVector.current;
-            const last = lastSentVector.current;
-
-            // Only send if different (with small epsilon for float drift)
-            if (Math.abs(curr.x - last.x) > 0.05 || Math.abs(curr.y - last.y) > 0.05) {
-                onMove(curr);
-                lastSentVector.current = curr;
-            } 
-            // Also send if active and we haven't sent in a while (keep-alive roughly) 
-            // but the above check is usually enough for movement.
-        }, 50);
-
-        return () => clearInterval(intervalId);
-    }, [onMove]);
+    }, [isActive, onMove]); // Re-bind if isActive changes (simple state machine)
 
     return (
         React.createElement('div', { 
@@ -675,8 +662,6 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     
     // Refs for physics loop (avoids React state batching issues)
     const positionsRef = useRef({});
-    // NEW: Separate velocities to avoid race condition with animation loop
-    const velocitiesRef = useRef({});
 
     // Dynamic Player Size Calculation
     const playerSizeVw = useMemo(() => {
@@ -689,28 +674,28 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     const startTimeRef = useRef(Date.now());
     const lastItemSpawn = useRef(0);
     
-    // Initialize positions and velocities
+    // Initialize positions
     useEffect(() => {
+        const initialPos = {};
         players.forEach((p, i) => {
-             // Init if not present
-             if (!positionsRef.current[p.id]) {
-                positionsRef.current[p.id] = { 
-                    x: 10 + (Math.random() * 80), 
-                    y: 10 + (Math.random() * 80), 
-                    color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
-                };
-             }
-             if (!velocitiesRef.current[p.id]) {
-                 velocitiesRef.current[p.id] = { x: 0, y: 0 };
-             }
+            initialPos[p.id] = { 
+                x: 10 + (Math.random() * 80), // % 
+                y: 10 + (Math.random() * 80), // %
+                vx: 0, 
+                vy: 0,
+                color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
+            };
         });
-        setRenderPositions({ ...positionsRef.current });
-    }, [players]);
+        positionsRef.current = initialPos;
+        setRenderPositions(initialPos);
+    }, []); // Run once on mount
 
-    // Socket Handler - Updates Velocity Ref only
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
-            velocitiesRef.current[playerId] = vec;
+            if (positionsRef.current[playerId]) {
+                positionsRef.current[playerId].vx = vec.x;
+                positionsRef.current[playerId].vy = vec.y;
+            }
         };
         return () => { window.updatePlayerVelocity = null; };
     }, []);
@@ -751,8 +736,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             lastItemSpawn.current = now;
         }
 
-        // 3. Update Physics & Collision
-        const speed = 0.8; // Increased speed for better responsiveness (was 0.6)
+        // 3. Update Physics & Collision using REF for smoothness
+        const speed = 0.6; // slightly faster speed per frame
         const radius = playerSizeVw / 2; // Radius in VW (approximation)
         
         const nextPos = { ...positionsRef.current };
@@ -761,11 +746,9 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         // Move players
         Object.keys(nextPos).forEach(pid => {
             const p = nextPos[pid];
-            const v = velocitiesRef.current[pid] || { x: 0, y: 0 }; // Read current input
-
-            if (v.x !== 0 || v.y !== 0) {
-                let nx = p.x + (v.x * speed);
-                let ny = p.y + (v.y * speed);
+            if (p.vx !== 0 || p.vy !== 0) {
+                let nx = p.x + (p.vx * speed);
+                let ny = p.y + (p.vy * speed);
                 
                 // Boundaries (keep entire ball inside)
                 nx = Math.max(radius, Math.min(100 - radius, nx));
@@ -1586,4 +1569,801 @@ const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass
         onConfirm(password);
     };
 
-    return React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p
+    return React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" },
+        React.createElement('form', { onSubmit: handleSubmit, className: "bg-white text-black p-6 rounded-lg shadow-xl max-w-sm w-full animate-zoom-in" },
+            React.createElement('h3', { className: "text-xl font-black mb-4" }, title || "Digite a Senha do Quiz"),
+            React.createElement('div', { className: "mb-6" },
+                React.createElement('input', {
+                    type: "password",
+                    value: password,
+                    onChange: (e) => setPassword(e.target.value),
+                    className: "w-full p-2 border border-gray-300 rounded",
+                    required: true,
+                    autoFocus: true
+                })
+            ),
+            React.createElement('div', { className: "flex justify-end gap-4" },
+                React.createElement('button', { type: "button", onClick: onCancel, className: "px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold transition-colors" }, "Cancelar"),
+                React.createElement('button', { type: "submit", className: `px-6 py-2 text-white rounded font-bold transition-colors ${buttonClass || 'bg-indigo-600 hover:bg-indigo-500'}` }, buttonText || "Carregar")
+            )
+        )
+    );
+};
+
+const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword, showNotification }) => {
+    const [savedQuizzes, setSavedQuizzes] = useState([]);
+    const [quizToLoad, setQuizToLoad] = useState(null);
+    const [quizToDelete, setQuizToDelete] = useState(null);
+
+    useEffect(() => {
+        try {
+            const quizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
+            setSavedQuizzes(quizzes);
+        } catch (e) {
+            console.error("Failed to load quizzes from storage", e);
+            setSavedQuizzes([]);
+        }
+    }, []);
+
+    const handleLoadPasswordConfirm = async (password) => {
+        if (!quizToLoad) return;
+        const hash = await hashPassword(password);
+        if (hash === quizToLoad.passwordHash) {
+            onLoad(quizToLoad.quizData);
+        } else {
+            showNotification("Senha incorreta!", "error");
+        }
+        setQuizToLoad(null);
+    };
+
+    const handleDeletePasswordConfirm = async (password) => {
+        if (!quizToDelete) return;
+        const hash = await hashPassword(password);
+        if (hash === quizToDelete.passwordHash) {
+            onDelete(quizToDelete.id);
+            setSavedQuizzes(prev => prev.filter(q => q.id !== quizToDelete.id));
+        } else {
+            showNotification("Senha incorreta!", "error");
+        }
+        setQuizToDelete(null);
+    };
+
+    return React.createElement('div', { className: "relative z-10 flex flex-col w-full h-screen p-4" },
+        quizToLoad && React.createElement(LoadPasswordModal, {
+            title: "Digite a Senha do Quiz",
+            buttonText: "Carregar",
+            buttonClass: "bg-indigo-600 hover:bg-indigo-500",
+            onConfirm: handleLoadPasswordConfirm,
+            onCancel: () => setQuizToLoad(null)
+        }),
+        quizToDelete && React.createElement(LoadPasswordModal, {
+            title: `Excluir "${quizToDelete.name}"`,
+            buttonText: "Excluir",
+            buttonClass: "bg-red-600 hover:bg-red-500",
+            onConfirm: handleDeletePasswordConfirm,
+            onCancel: () => setQuizToDelete(null)
+        }),
+        React.createElement('div', { className: "w-full max-w-2xl mx-auto flex flex-col h-full" },
+            React.createElement('div', { className: "flex items-center justify-between mb-8" },
+                React.createElement('h1', { className: "text-4xl font-black" }, "Carregar Quiz Salvo"),
+                React.createElement('button', { onClick: onBack, className: "bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" }, "← Voltar ao Menu")
+            ),
+            savedQuizzes.length === 0 ? (
+                React.createElement('div', { className: "flex-1 flex flex-col items-center justify-center bg-black/20 rounded-xl" },
+                    React.createElement('p', { className: "text-2xl" }, "📚"),
+                    React.createElement('p', { className: "font-bold mt-2" }, "Nenhum quiz salvo encontrado."),
+                    React.createElement('p', { className: "text-sm text-white/60" }, "Crie e salve um quiz para vê-lo aqui.")
+                )
+            ) : (
+                React.createElement('div', { className: "flex-1 overflow-y-auto space-y-3" },
+                    savedQuizzes.map(quiz => (
+                        React.createElement('div', {
+                            key: quiz.id,
+                            className: "flex items-center justify-between bg-white/10 backdrop-blur rounded-lg p-4 animate-slide-in-from-right"
+                        },
+                            React.createElement('span', { className: "font-bold text-lg" }, quiz.name),
+                            React.createElement('div', { className: "flex gap-2" },
+                                React.createElement('button', { onClick: () => setQuizToDelete(quiz), className: "px-3 py-1 bg-red-600/50 hover:bg-red-600 rounded text-xs font-bold" }, "Excluir"),
+                                React.createElement('button', { onClick: () => setQuizToLoad(quiz), className: "px-4 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-bold" }, "Carregar")
+                            )
+                        )
+                    ))
+                )
+            )
+        )
+    );
+};
+
+const App = () => {
+  const [appMode, setAppMode] = useState('MENU');
+  
+  const [gameState, setGameState] = useState(GameState.MENU);
+  const [quiz, setQuiz] = useState(null);
+  const [pin, setPin] = useState("");
+  const [players, setPlayers] = useState([]);
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(0);
+  
+  const [myPlayerId, setMyPlayerId] = useState("");
+  const [playerTimeLeft, setPlayerTimeLeft] = useState(0);
+  const [hasAnswered, setHasAnswered] = useState(false);
+  const [myFeedback, setMyFeedback] = useState(null);
+  const [myScore, setMyScore] = useState(0);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConfirmingExit, setIsConfirmingExit] = useState(false);
+
+  // Notification State
+  const [notification, setNotification] = useState(null);
+
+  const [isMuted, setIsMuted] = useState(false);
+  const bgMusicRef = useRef(null);
+  const sfxRef = useRef(null);
+
+  const channelRef = useRef(null);
+  const timerRef = useRef(null);
+  const playerTimerRef = useRef(null);
+  const playerTimeLeftRef = useRef(0);
+  const myFeedbackRef = useRef(null);
+
+  // Refs to hold current state for callbacks, preventing stale state issues.
+  const quizRef = useRef(quiz);
+  useEffect(() => { quizRef.current = quiz; }, [quiz]);
+  const qIndexRef = useRef(currentQIndex);
+  useEffect(() => { qIndexRef.current = currentQIndex; }, [currentQIndex]);
+  const myPlayerIdRef = useRef(myPlayerId);
+  useEffect(() => { myPlayerIdRef.current = myPlayerId; }, [myPlayerId]);
+  const playersRef = useRef(players);
+  useEffect(() => { playersRef.current = players; }, [players]);
+  const pinRef = useRef(pin);
+  useEffect(() => { pinRef.current = pin; }, [pin]);
+  const gameStateRef = useRef(gameState);
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+
+  // HELPER: Parse nickname for avatar data
+  const parsePlayer = (p) => {
+      // Format: "Nickname|||JSONString"
+      if (!p.nickname.includes('|||')) return p;
+      try {
+          const parts = p.nickname.split('|||');
+          const realNickname = parts[0];
+          const avatar = JSON.parse(parts[1]);
+          return { ...p, nickname: realNickname, avatar };
+      } catch (e) {
+          return p;
+      }
+  };
+
+  const sanitizePlayerList = (list) => {
+      return list.map(parsePlayer);
+  };
+
+  useEffect(() => {
+    bgMusicRef.current = new Audio(AUDIO.LOBBY_MUSIC);
+    bgMusicRef.current.loop = true;
+    bgMusicRef.current.volume = 0.3;
+    sfxRef.current = new Audio();
+  }, []);
+
+  const showNotification = (message, type = 'info') => {
+      setNotification({ message, type });
+  };
+
+  const closeNotification = () => {
+      setNotification(null);
+  };
+
+  const playSfx = (url) => {
+      if (isMuted || !sfxRef.current) return;
+      sfxRef.current.src = url;
+      sfxRef.current.currentTime = 0;
+      sfxRef.current.play().catch(e => console.log("Audio play failed (interaction needed)", e));
+  };
+
+  const toggleMute = () => {
+      setIsMuted(!isMuted);
+      if (bgMusicRef.current) {
+          bgMusicRef.current.muted = !isMuted;
+      }
+  };
+
+  useEffect(() => {
+    if (!bgMusicRef.current || isMuted) return;
+
+    if (appMode === 'HOST' && (gameState === GameState.LOBBY || gameState === GameState.LEADERBOARD)) {
+        if (bgMusicRef.current.src !== AUDIO.LOBBY_MUSIC) bgMusicRef.current.src = AUDIO.LOBBY_MUSIC;
+        bgMusicRef.current.play().catch(() => {});
+    } else if (gameState === GameState.MINIGAME) {
+        if (bgMusicRef.current.src !== AUDIO.BONUS_MUSIC) bgMusicRef.current.src = AUDIO.BONUS_MUSIC;
+        bgMusicRef.current.play().catch(() => {});
+    } else if (gameState === GameState.COUNTDOWN || gameState === GameState.QUESTION) {
+        bgMusicRef.current.pause(); 
+    } else {
+        bgMusicRef.current.pause();
+    }
+  }, [gameState, appMode, isMuted]);
+
+  useEffect(() => {
+    const channel = supabase.channel(CHANNEL_NAME);
+
+    channel
+      .on(
+        'broadcast',
+        { event: 'game-event' },
+        (payload) => {
+          const msg = payload.payload;
+          
+          if (appMode === 'PLAYER') {
+            handlePlayerMessages(msg);
+          } else if (appMode === 'HOST') {
+            handleHostMessages(msg);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          console.log('Connected to Supabase Realtime');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setIsConnected(false);
+          console.log('Supabase Disconnected:', status);
+        }
+      });
+
+    channelRef.current = channel;
+
+    if (appMode === 'PLAYER') {
+        setTimeout(() => broadcast({ type: 'REQUEST_STATE' }), 1000);
+    }
+
+    return () => {
+        supabase.removeChannel(channel);
+        if (timerRef.current) clearInterval(timerRef.current);
+        if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+    };
+  }, [appMode]);
+
+  useEffect(() => {
+    if (appMode === 'HOST' && players.length > 0) {
+        // We broadcast RAW players (with JSON in nickname if present) to persist in other clients, 
+        // but locally we display sanitized.
+        // Wait, 'players' state in this component should probably hold SANITIZED data for display,
+        // but when we sync, we might lose the avatar if we stripped it?
+        // Let's store SANITIZED in state, but when we JOIN, we kept the avatar property.
+        // broadcast sends what is in state.
+        broadcast({ type: 'UPDATE_PLAYERS', payload: players });
+    }
+  }, [players, appMode]);
+
+  const startHost = (createdQuiz) => {
+    setQuiz(createdQuiz);
+    const newPin = Math.floor(100000 + Math.random() * 900000).toString();
+    setPin(newPin);
+    
+    createGameSession(newPin, createdQuiz.title).then(() => {
+        console.log("Game session created in DB for PIN:", newPin);
+    });
+
+    setGameState(GameState.LOBBY);
+    setTimeout(() => {
+        broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LOBBY, currentQuestionIndex: 0, totalQuestions: createdQuiz.questions.length, pin: newPin } });
+    }, 1000);
+  };
+
+  const handleHostMessages = (msg) => {
+    if (msg.type === 'JOIN') {
+        setPlayers(prev => {
+            if (prev.find(p => p.id === msg.payload.id)) return prev;
+            playSfx(AUDIO.CORRECT);
+            
+            // Parse incoming join data
+            const rawNick = msg.payload.nickname;
+            let realNick = rawNick;
+            let avatar = null;
+            if (rawNick.includes('|||')) {
+                try {
+                    const parts = rawNick.split('|||');
+                    realNick = parts[0];
+                    avatar = JSON.parse(parts[1]);
+                } catch(e) {}
+            }
+            
+            // Or use the helper if we pass the whole object
+            const parsedObj = parsePlayer(msg.payload);
+
+            return [...prev, { 
+                id: parsedObj.id, 
+                nickname: parsedObj.nickname, 
+                avatar: parsedObj.avatar,
+                score: 0, 
+                streak: 0, 
+                lastAnswerShape: null 
+            }];
+        });
+    } else if (msg.type === 'LEAVE') {
+        setPlayers(prev => prev.filter(p => p.id !== msg.payload.playerId));
+    } else if (msg.type === 'REQUEST_STATE') {
+        if (quizRef.current && pinRef.current) {
+            broadcast({ type: 'SYNC_STATE', payload: { state: gameStateRef.current, currentQuestionIndex: qIndexRef.current, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
+            broadcast({ type: 'UPDATE_PLAYERS', payload: playersRef.current });
+        }
+    } else if (msg.type === 'PLAYER_INPUT') {
+        // High frequency input - do not trigger react state re-renders if possible for performance
+        if (window.updatePlayerVelocity) {
+            window.updatePlayerVelocity(msg.payload.id, msg.payload.vector);
+        }
+    } else if (msg.type === 'SUBMIT_ANSWER') {
+        const { playerId, answerId, timeLeft: answerTime } = msg.payload;
+        
+        setPlayers(prev => {
+            const playerIndex = prev.findIndex(p => p.id === playerId);
+            if (playerIndex === -1) return prev;
+            
+            const player = prev[playerIndex];
+            // Use refs to get current question index safely inside callback
+            const currentQ = quizRef.current?.questions[qIndexRef.current];
+            
+            if (!currentQ) return prev;
+
+            const answerShape = answerId; 
+            const isCorrect = currentQ.answers.find(a => a.shape === answerShape)?.isCorrect || false;
+            
+            const currentStreak = isCorrect ? player.streak + 1 : 0;
+            const maxPoints = currentQ.points || 100; // Default to 100 if not set, as requested
+            const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak, maxPoints) : 0;
+
+            broadcast({ 
+                type: 'ANSWER_RESULT', 
+                payload: { 
+                    playerId, 
+                    isCorrect, 
+                    pointsToAdd, 
+                    newStreak: currentStreak 
+                } 
+            });
+
+            const newPlayers = [...prev];
+            newPlayers[playerIndex] = {
+                ...player,
+                score: player.score + pointsToAdd,
+                streak: currentStreak,
+                lastAnswerCorrect: isCorrect,
+                lastAnswerShape: answerShape
+            };
+            return newPlayers;
+        });
+    }
+  };
+
+  const hostStartGame = () => {
+      hostStartCountdown(0);
+  };
+
+  const hostStartCountdown = (indexOverride) => {
+      const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
+      
+      playSfx(AUDIO.COUNTDOWN);
+      setGameState(GameState.COUNTDOWN);
+      setTimeLeft(5);
+      // Reset player answers for the new question
+      setPlayers(prev => prev.map(p => ({ ...p, lastAnswerShape: null })));
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
+      
+      let count = 5;
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+          count--;
+          setTimeLeft(count);
+          if (count <= 0) {
+              clearInterval(timerRef.current);
+              hostStartQuestion(activeIndex);
+          }
+      }, 1000);
+  };
+
+  const hostStartQuestion = (indexOverride) => {
+      const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
+
+      setGameState(GameState.QUESTION);
+      // Use quizRef.current to avoid stale closure on 'quiz'
+      const q = quizRef.current.questions[activeIndex];
+      setTimeLeft(q.timeLimit);
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.QUESTION, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
+      broadcast({ type: 'QUESTION_START', payload: { questionIndex: activeIndex, timeLimit: q.timeLimit } });
+
+      let count = q.timeLimit;
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+          count--;
+          setTimeLeft(count);
+          if (count <= 0) {
+              clearInterval(timerRef.current);
+              hostShowAnswerReveal();
+          }
+      }, 1000);
+  };
+  
+  const hostShowAnswerReveal = () => {
+      playSfx(AUDIO.TIME_UP);
+      setGameState(GameState.ANSWER_REVEAL);
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.ANSWER_REVEAL, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+  };
+
+  const hostShowLeaderboard = () => {
+      setGameState(GameState.LEADERBOARD);
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+  };
+  
+  const hostStartBonusGame = () => {
+      setGameState(GameState.MINIGAME);
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.MINIGAME, pin } });
+  };
+
+  const hostUpdateBonusScores = (scoreUpdates) => {
+      // scoreUpdates: { playerId: pointsAdded }
+      playSfx(AUDIO.COLLECT);
+      setPlayers(prev => {
+          return prev.map(p => {
+              if (scoreUpdates[p.id]) {
+                  return { ...p, score: Math.max(0, p.score + scoreUpdates[p.id]) };
+              }
+              return p;
+          });
+      });
+  };
+
+  const hostNextQuestion = () => {
+      if (currentQIndex + 1 >= quiz.questions.length) {
+          setGameState(GameState.PODIUM);
+          broadcast({ type: 'SYNC_STATE', payload: { state: GameState.PODIUM, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+      } else {
+          const nextIndex = currentQIndex + 1;
+          setCurrentQIndex(nextIndex);
+          hostStartCountdown(nextIndex);
+      }
+  };
+  
+  const handleNextFromHostGame = () => {
+    if (gameState === GameState.ANSWER_REVEAL || gameState === GameState.MINIGAME) {
+        hostShowLeaderboard();
+    } else if (gameState === GameState.LEADERBOARD) {
+        hostNextQuestion();
+    }
+  };
+
+  const broadcast = async (msg) => {
+      if (!channelRef.current) return;
+      try {
+        await channelRef.current.send({
+            type: 'broadcast',
+            event: 'game-event',
+            payload: msg
+        });
+      } catch (err) {
+        console.error("Broadcast error", err);
+      }
+  };
+
+  const handlePlayerMessages = (msg) => {
+      if (msg.type === 'SYNC_STATE') {
+          setGameState(msg.payload.state);
+          
+          // Sound trigger logic: Only play feedback sound when entering ANSWER_REVEAL state
+          if (msg.payload.state === GameState.ANSWER_REVEAL) {
+             if (myFeedbackRef.current) {
+                 if (myFeedbackRef.current.isCorrect) playSfx(AUDIO.CORRECT);
+                 else playSfx(AUDIO.WRONG);
+             }
+          }
+
+          if (msg.payload.state === GameState.QUESTION || msg.payload.state === GameState.COUNTDOWN) {
+              setHasAnswered(false);
+              setMyFeedback(null); 
+              myFeedbackRef.current = null;
+          }
+          if (msg.payload.state === GameState.LOBBY) {
+              setMyScore(0);
+          }
+          if (msg.payload.state !== GameState.QUESTION) {
+              if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+          }
+      } 
+      else if (msg.type === 'UPDATE_PLAYERS') {
+          setPlayers(sanitizePlayerList(msg.payload));
+          const me = msg.payload.find(p => p.id === myPlayerIdRef.current);
+          if (me) {
+              setMyScore(me.score);
+          }
+      }
+      else if (msg.type === 'ANSWER_RESULT') {
+          if (msg.payload.playerId === myPlayerIdRef.current) {
+              const fb = {
+                  isCorrect: msg.payload.isCorrect,
+                  points: msg.payload.pointsToAdd,
+                  streak: msg.payload.newStreak
+              };
+              setMyFeedback(fb);
+              myFeedbackRef.current = fb;
+              
+              // If we are late and state is already ANSWER_REVEAL, play sound now
+              if (gameStateRef.current === GameState.ANSWER_REVEAL) {
+                   if (fb.isCorrect) playSfx(AUDIO.CORRECT);
+                   else playSfx(AUDIO.WRONG);
+              }
+              // Otherwise wait for SYNC_STATE to ANSWER_REVEAL
+          }
+      }
+      else if (msg.type === 'QUESTION_START') {
+          if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+          
+          let count = msg.payload.timeLimit;
+          setPlayerTimeLeft(count);
+          playerTimeLeftRef.current = count;
+
+          playerTimerRef.current = setInterval(() => {
+              count--;
+              setPlayerTimeLeft(count);
+              playerTimeLeftRef.current = count;
+              if (count <= 0) {
+                  clearInterval(playerTimerRef.current);
+              }
+          }, 1000);
+      }
+      else if (msg.type === 'GAME_ENDED') {
+        showNotification("O anfitrião encerrou o jogo.", 'info');
+        setMyPlayerId("");
+        localStorage.removeItem('kahoot-player-id');
+        resetAllState();
+    }
+  };
+  
+  const playerJoin = async (nickname, pinToJoin, avatarConfig) => {
+      if (!pinToJoin) {
+          showNotification("Por favor, insira um PIN para entrar no jogo.", 'error');
+          return;
+      }
+      
+      // Persist avatar by appending it to the nickname string before sending to DB
+      const encodedNickname = avatarConfig 
+        ? `${nickname}|||${JSON.stringify(avatarConfig)}`
+        : nickname;
+      
+      const newPlayer = await registerPlayer(pinToJoin, encodedNickname);
+      
+      if (newPlayer) {
+          setMyPlayerId(newPlayer.id);
+          localStorage.setItem('kahoot-player-id', newPlayer.id);
+          
+          // Broadcast raw encoded name so other clients parse it
+          broadcast({ type: 'JOIN', payload: { nickname: encodedNickname, id: newPlayer.id } });
+          
+          setGameState(GameState.LOBBY);
+          const url = new URL(window.location.href);
+          if (url.searchParams.get('pin') !== pinToJoin) {
+            url.searchParams.set('pin', pinToJoin);
+            try {
+                window.history.pushState({}, '', url);
+            } catch (e) {
+                console.warn("Failed to update history:", e);
+            }
+          }
+      } else {
+          console.error("Falha ao entrar no jogo.");
+          showNotification("Falha ao entrar no jogo. O PIN pode estar incorreto ou o jogo não existe.", 'error');
+      }
+  };
+
+  const playerSubmit = (shape) => {
+      if (hasAnswered) return;
+      setHasAnswered(true);
+      if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+      broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeftRef.current } }); 
+  };
+  
+  // Stable callback using Refs to avoid re-creation on every render
+  const playerJoystickMove = useCallback((vector) => {
+      broadcast({ type: 'PLAYER_INPUT', payload: { id: myPlayerIdRef.current, vector }});
+  }, []);
+  
+  const resetAllState = () => {
+    setAppMode('MENU');
+    setGameState(GameState.MENU);
+    setQuiz(null);
+    setPin("");
+    setPlayers([]);
+    setCurrentQIndex(0);
+    setTimeLeft(0);
+    setMyFeedback(null);
+    myFeedbackRef.current = null;
+    setHasAnswered(false);
+    setMyScore(0);
+    if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+        bgMusicRef.current.currentTime = 0;
+    }
+    if (window.location.search) {
+        try {
+            window.history.pushState({}, document.title, window.location.pathname);
+        } catch (e) {
+            console.warn("Failed to update history:", e);
+        }
+    }
+  };
+
+  const executeBackToMenu = () => {
+    if (appMode === 'PLAYER' && myPlayerId) {
+        broadcast({ type: 'LEAVE', payload: { playerId: myPlayerId } });
+        deletePlayer(myPlayerId);
+        localStorage.removeItem('kahoot-player-id');
+        setMyPlayerId("");
+    }
+    
+    if (appMode === 'HOST') {
+        broadcast({ type: 'GAME_ENDED' });
+        deleteGameSessionByPin(pin);
+    }
+
+    resetAllState();
+  };
+
+  const handleBackToMenu = () => {
+    if (appMode === 'MENU' || isConfirmingExit) return;
+    setIsConfirmingExit(true);
+  };
+
+  const shouldShowBackButton = () => {
+    if (appMode === 'MENU' || appMode === 'LOADER') return false;
+    if (appMode === 'HOST' && (gameState === GameState.CREATE || gameState === GameState.LOBBY)) {
+        return false; // No back button in creator or host lobby
+    }
+    return true;
+  };
+  
+  const hashPassword = async (password) => {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashHex;
+  };
+
+  const handleSaveQuiz = async (quizData, name, password) => {
+      if (!name || !password) {
+          showNotification("O nome do quiz e a senha são obrigatórios.", 'error');
+          return;
+      }
+      const passwordHash = await hashPassword(password);
+      const newQuiz = {
+          id: `quiz-${Date.now()}`,
+          name,
+          passwordHash,
+          quizData
+      };
+      try {
+          const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
+          savedQuizzes.push(newQuiz);
+          localStorage.setItem('savedQuizzes-2025', JSON.stringify(savedQuizzes));
+          showNotification(`Quiz "${name}" salvo com sucesso!`, 'success');
+      } catch (e) {
+          showNotification("Ocorreu um erro ao salvar o quiz.", 'error');
+      }
+  };
+
+  const handleDeleteQuiz = (quizId) => {
+      try {
+          const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
+          const updatedQuizzes = savedQuizzes.filter(q => q.id !== quizId);
+          localStorage.setItem('savedQuizzes-2025', JSON.stringify(updatedQuizzes));
+      } catch (e) {
+          showNotification("Ocorreu um erro ao excluir o quiz.", 'error');
+      }
+  };
+
+  const handleLoadQuiz = (quizData) => {
+      setQuiz(quizData);
+      setAppMode('HOST');
+      setGameState(GameState.CREATE);
+  };
+
+  const BackButton = () => (
+    React.createElement('button', { onClick: handleBackToMenu, className: "absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" },
+        React.createElement('span', null, "←"), " Voltar"
+    )
+  );
+
+  const myPlayer = players.find(p => p.id === myPlayerId);
+  const myNickname = myPlayer ? myPlayer.nickname : "";
+  const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
+
+  return (
+    React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
+      // Notification Modal
+      notification && React.createElement(NotificationModal, {
+          message: notification.message,
+          type: notification.type,
+          onClose: closeNotification
+      }),
+      isConfirmingExit && React.createElement(ConfirmModal, {
+          text: appMode === 'HOST' ? "Tem certeza que deseja sair? O jogo será encerrado para todos os jogadores." : "Tem certeza que deseja sair da sala?",
+          onConfirm: () => {
+              setIsConfirmingExit(false);
+              executeBackToMenu();
+          },
+          onCancel: () => setIsConfirmingExit(false)
+      }),
+      appMode === 'MENU' ? (
+          React.createElement('div', { className: "relative min-h-screen flex flex-col items-center justify-center" },
+            React.createElement(Background, null),
+            React.createElement('div', { className: "relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full" },
+                React.createElement('h1', { className: "text-6xl font-black mb-12 tracking-tight" }, "S.art quiz"),
+                React.createElement('div', { className: "flex flex-col gap-4" },
+                    React.createElement('button', { onClick: () => { setQuiz(null); setAppMode('HOST'); setGameState(GameState.CREATE); }, className: "bg-white text-indigo-900 font-black text-xl py-4 rounded shadow-lg hover:scale-105 transition-transform" }, "Criar Jogo"),
+                    React.createElement('button', { onClick: () => setAppMode('LOADER'), className: "bg-purple-600 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-purple-500 transition-colors" }, "Carregar Quiz Salvo"),
+                    React.createElement('button', { onClick: () => setAppMode('PLAYER'), className: "bg-indigo-600 border-2 border-indigo-400 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-indigo-500 transition-colors" }, "Entrar no Jogo")
+                ),
+                !isConnected && (
+                    React.createElement('p', { className: "mt-4 text-xs text-yellow-300 animate-pulse" }, "Conectando ao servidor...")
+                )
+            )
+        )
+      ) : appMode === 'LOADER' ? (
+          React.createElement('div', null,
+              React.createElement(Background, null),
+              React.createElement(QuizLoader, {
+                  onLoad: handleLoadQuiz,
+                  onDelete: handleDeleteQuiz,
+                  onBack: () => setAppMode('MENU'),
+                  hashPassword: hashPassword,
+                  showNotification: showNotification
+              })
+          )
+      ) : appMode === 'HOST' ? (
+        React.createElement('div', { className: "relative min-h-screen flex flex-col" },
+             React.createElement(Background, null),
+             shouldShowBackButton() && React.createElement(BackButton, null),
+             React.createElement('div', { className: "absolute bottom-4 right-4 z-50" },
+                React.createElement('button', { onClick: toggleMute, className: "bg-white/20 p-3 rounded-full hover:bg-white/40 transition-colors shadow-lg border border-white/10", title: isMuted ? "Ativar som" : "Mudo" }, isMuted ? '🔇' : '🔊')
+             ),
+             gameState === GameState.CREATE ? (
+                 React.createElement(QuizCreator, { onSave: startHost, onCancel: handleBackToMenu, onSaveQuiz: handleSaveQuiz, initialQuiz: quiz, showNotification: showNotification })
+             ) : gameState === GameState.LOBBY ? (
+                 React.createElement(Lobby, { pin: pin, players: players, onStart: hostStartGame, onCancel: handleBackToMenu })
+             ) : (
+                 React.createElement(HostGame, { 
+                     quiz: quiz, 
+                     players: players, 
+                     currentQuestionIndex: currentQIndex, 
+                     timeLeft: timeLeft, 
+                     gameState: gameState, 
+                     onNext: handleNextFromHostGame, 
+                     onEndGame: handleBackToMenu,
+                     onStartBonusGame: hostStartBonusGame,
+                     onUpdateScores: hostUpdateBonusScores
+                 })
+             )
+        )
+      ) : ( // PLAYER MODE
+        React.createElement('div', { className: "h-screen w-full overflow-hidden" },
+            React.createElement(Background, null),
+            shouldShowBackButton() && React.createElement(BackButton, null),
+            React.createElement(PlayerView, { 
+                onJoin: playerJoin, 
+                onSubmit: playerSubmit,
+                onJoystickMove: playerJoystickMove,
+                gameState: gameState, 
+                hasAnswered: hasAnswered,
+                score: myScore,
+                place: myRank,
+                nickname: myNickname, 
+                feedback: myFeedback,
+                showNotification: showNotification
+            })
+        )
+      )
+    )
+  );
+};
+
+// --- RENDER APP ---
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
