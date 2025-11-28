@@ -686,7 +686,15 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
     React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8" },
         React.createElement('div', { className: "bg-white text-black p-6 rounded-xl shadow-xl w-full max-w-sm" },
             React.createElement('p', { className: "text-gray-500 font-bold uppercase text-sm mb-2" }, "Pontuação Total"),
-            React.createElement('h2', { className: "text-5xl font-black mb-6" }, score),
+            React.createElement('h2', { className: "text-5xl font-black mb-2" }, score),
+            React.createElement('div', { className: 'h-10 flex items-center justify-center mb-4' },
+                feedback && feedback.points > 0 && (
+                    React.createElement('div', {
+                        key: 'points-won',
+                        className: 'text-green-600 font-black text-2xl animate-[bounce_1s_ease-in-out_2]'
+                    }, `+${feedback.points}`)
+                )
+            ),
             React.createElement('div', { className: "bg-black text-white py-3 rounded-lg font-bold text-xl mb-2" }, place > 0 ? `${place}º Lugar` : '-')
         ),
         React.createElement('p', { className: "mt-8 text-white/70 font-bold" }, nickname)
