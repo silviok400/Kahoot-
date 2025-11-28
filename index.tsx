@@ -191,8 +191,8 @@ const AVATAR_OPTIONS = {
 const AVATAR_COUNTS = {
     hairStyle: 12,
     clothingStyle: 10,
-    accessory: 10,
-    hat: 11
+    accessory: 12,
+    hat: 13
 };
 
 const Avatar = ({ config, size = "100%" }) => {
@@ -337,6 +337,8 @@ const Avatar = ({ config, size = "100%" }) => {
                 React.createElement('path', { d: "M35 42 Q38 36 41 42 Q44 36 47 42 L41 48 Z", fill: "pink", stroke: "red" }),
                 React.createElement('path', { d: "M53 42 Q56 36 59 42 Q62 36 65 42 L59 48 Z", fill: "pink", stroke: "red" })
             ),
+            accessory === 10 && React.createElement('rect', { x: "38", y: "50", width: "24", height: "15", rx: "3", fill: "#81d4fa", stroke: "white", strokeWidth: "1" }), // Mask
+            accessory === 11 && React.createElement('path', { d: "M40 58 Q50 52 60 58 Q55 62 50 60 Q45 62 40 58", fill: "#333" }), // Mustache
 
             // --- HATS ---
             hat === 1 && React.createElement('g', null, // Cap
@@ -378,6 +380,16 @@ const Avatar = ({ config, size = "100%" }) => {
             hat === 10 && React.createElement('g', null, // Party Hat
                 React.createElement('polygon', { points: "35,35 50,10 65,35", fill: "cyan" }),
                 React.createElement('circle', { cx: "50", cy: "10", r: "3", fill: "orange" })
+            ),
+            hat === 11 && React.createElement('g', null, // Grad Cap
+                React.createElement('polygon', { points: "50,10 80,25 50,40 20,25", fill: "#333" }),
+                React.createElement('rect', { x: "40", y: "30", width: "20", height: "10", fill: "#333" }),
+                React.createElement('line', { x1: "80", y1: "25", x2: "80", y2: "45", stroke: "gold" })
+            ),
+            hat === 12 && React.createElement('g', null, // Santa Hat
+                React.createElement('path', { d: "M30 40 Q50 0 70 40 Z", fill: "red" }),
+                React.createElement('rect', { x: "25", y: "38", width: "50", height: "8", rx: "4", fill: "white" }),
+                React.createElement('circle', { cx: "70", cy: "40", r: "5", fill: "white" })
             )
         )
     );
@@ -400,7 +412,7 @@ const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
         { id: 'skin', label: 'Pele', type: 'color', options: AVATAR_OPTIONS.skin, key: 'skinColor' },
         { id: 'hair', label: 'Cabelo', type: 'style+color', count: AVATAR_COUNTS.hairStyle, colors: AVATAR_OPTIONS.hair, styleKey: 'hairStyle', colorKey: 'hairColor' },
         { id: 'clothing', label: 'Roupa', type: 'style+color', count: AVATAR_COUNTS.clothingStyle, colors: AVATAR_OPTIONS.clothing, styleKey: 'clothingStyle', colorKey: 'clothingColor' },
-        { id: 'accessory', label: 'Óculos', type: 'style', count: AVATAR_COUNTS.accessory, styleKey: 'accessory' },
+        { id: 'accessory', label: 'Acessórios', type: 'style', count: AVATAR_COUNTS.accessory, styleKey: 'accessory' },
         { id: 'hat', label: 'Chapéu', type: 'style', count: AVATAR_COUNTS.hat, styleKey: 'hat' }
     ];
 
@@ -428,7 +440,7 @@ const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
         ),
 
         // Controls Area
-        React.createElement('div', { className: "w-full flex-1 overflow-y-auto min-h-[200px] p-1 custom-scrollbar" },
+        React.createElement('div', { className: "w-full flex-1 overflow-y-auto min-h-[200px] p-1 pr-2" },
             
             // Render Color Options if applicable
             (activeCategory.type === 'color' || activeCategory.type === 'style+color') && (
@@ -1348,6 +1360,13 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
     }
   }, [nickname]);
 
+  // If game starts, force exit from Avatar Editor
+  useEffect(() => {
+      if (gameState !== GameState.LOBBY) {
+          setIsEditingAvatar(false);
+      }
+  }, [gameState]);
+
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (!inputName.trim() || !pin) {
@@ -1459,7 +1478,7 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
                     React.createElement(Avatar, { config: currentAvatar }),
                     React.createElement('button', {
                         onClick: () => setIsEditingAvatar(true),
-                        className: "absolute bottom-0 right-0 bg-white text-indigo-900 p-2 rounded-full shadow-lg border-2 border-indigo-100 hover:scale-110 transition-transform"
+                        className: "absolute bottom-0 right-0 bg-white text-indigo-900 p-2 rounded-full shadow-lg border-2 border-indigo-100 hover:scale-110 transition-transform font-bold text-xl w-10 h-10 flex items-center justify-center"
                     }, "✏️")
                 )
             ),
