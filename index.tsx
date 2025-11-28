@@ -988,10 +988,21 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
 
       case GameState.QUESTION:
       default:
+        const answeredCount = players.filter(p => p.lastAnswerShape).length;
+        
         return React.createElement('div', { key: `question-${currentQuestionIndex}`, className: "animate-fade-in flex flex-col h-full p-4 w-full" },
-          React.createElement('div', { className: "flex justify-between items-start mb-4" },
-            React.createElement('div', { className: "bg-white text-black font-bold px-4 py-2 rounded-full text-xl shadow-lg" }, `${currentQuestionIndex + 1} / ${quiz.questions.length}`),
-            React.createElement('div', { className: "w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center border-4 border-white shadow-xl" },
+          React.createElement('div', { className: "flex justify-end items-center mb-4 gap-4" },
+            // Question Counter
+            React.createElement('div', { className: "bg-white/90 backdrop-blur text-indigo-900 font-black px-6 py-2 rounded-full text-xl shadow-lg border-2 border-indigo-900/10" }, 
+                `Questão ${currentQuestionIndex + 1} / ${quiz.questions.length}`
+            ),
+            // Answers Counter
+            React.createElement('div', { className: "bg-indigo-600 text-white font-bold px-6 py-2 rounded-full text-xl shadow-lg border-2 border-white/20 flex items-center gap-2" },
+                React.createElement('span', { className: "text-2xl" }, "📥"),
+                React.createElement('span', null, `Respostas: ${answeredCount}`)
+            ),
+            // Timer
+            React.createElement('div', { className: "w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center border-4 border-white shadow-xl relative z-10" },
               React.createElement('span', { className: "text-4xl font-black" }, timeLeft)
             )
           ),
