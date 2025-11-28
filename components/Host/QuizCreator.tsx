@@ -1,14 +1,74 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Quiz, Question, Shape } from '../../types';
+import { saveQuizToSupabase, fetchQuizzes, fetchFullQuiz } from '../../lib/supabase';
+import { generateQuizQuestions } from '../../services/geminiService';
 
 interface QuizCreatorProps {
   onSave: (quiz: Quiz) => void;
   onCancel: () => void;
 }
 
-const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) => {
+export const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) => {
   const [title, setTitle] = useState("Meu Quiz Incrível");
   const [questions, setQuestions] = useState<Question[]>([]);
+  
+  // Database State
+  const [savedQuizzes, setSavedQuizzes] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // AI State
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    loadSavedQuizzes();
+  }, []);
+
+  const loadSavedQuizzes = async () => {
+      const data = await fetchQuizzes();
+      setSavedQuizzes(data);
+  };
+
+  const handleLoadQuiz = async (quizId: string) => {
+      if (!quizId) return;
+      setIsLoading(true);
+      const fullQuiz = await fetchFullQuiz(quizId);
+      if (fullQuiz) {
+          setTitle(fullQuiz.title);
+          setQuestions(fullQuiz.questions);
+      }
+      setIsLoading(false);
+  };
+
+  const handleSaveToCloud = async () => {
+      setIsSaving(true);
+      const result = await saveQuizToSupabase({ title, questions });
+      setIsSaving(false);
+      if (result.success) {
+          alert("Quiz salvo com sucesso no banco de dados!");
+          loadSavedQuizzes(); // Refresh list
+      } else {
+          // Display the actual error message
+          const msg = result.error?.message || result.error?.details || JSON.stringify(result.error);
+          alert(`Erro ao salvar: ${msg}. Verifique o console para mais detalhes.`);
+      }
+  };
+
+  const handleAiGenerate = async () => {
+    const topic = prompt("Sobre qual tema você quer gerar perguntas?");
+    if (!topic) return;
+
+    setIsGenerating(true);
+    try {
+        const newQuestions = await generateQuizQuestions(topic, 5);
+        setQuestions([...questions, ...newQuestions]);
+    } catch (error) {
+        console.error(error);
+        alert("Erro ao gerar perguntas com IA.");
+    } finally {
+        setIsGenerating(false);
+    }
+  };
 
   const addEmptyQuestion = () => {
     const newQ: Question = {
@@ -52,14 +112,48 @@ const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) => {
         <h2 className="text-xl md:text-3xl font-black text-white w-full text-center md:text-left">Criar Kahoot!</h2>
         <div className="flex gap-2 w-full md:w-auto">
           <button onClick={onCancel} className="flex-1 md:flex-none px-3 py-2 bg-gray-600 rounded font-bold hover:bg-gray-500 text-sm">Cancelar</button>
+          
+          <button 
+            onClick={handleAiGenerate}
+            disabled={isGenerating}
+            className="flex-1 md:flex-none px-4 py-2 bg-purple-600 rounded font-bold hover:bg-purple-500 disabled:opacity-50 text-sm whitespace-nowrap flex items-center justify-center gap-2 border border-purple-400/50"
+          >
+             {isGenerating ? 'Gerando...' : '✨ Gerar com IA'}
+          </button>
+
+          <button 
+            onClick={handleSaveToCloud} 
+            disabled={isSaving || questions.length === 0}
+            className="flex-1 md:flex-none px-4 py-2 bg-blue-600 rounded font-bold hover:bg-blue-500 disabled:opacity-50 text-sm whitespace-nowrap"
+          >
+            {isSaving ? 'Salvando...' : 'Salvar (DB)'}
+          </button>
+
           <button 
             onClick={() => onSave({ title, questions })} 
             disabled={questions.length === 0}
             className="flex-1 md:flex-none px-4 py-2 bg-green-600 rounded font-bold hover:bg-green-500 disabled:opacity-50 text-sm whitespace-nowrap"
           >
-            Salvar & Jogar
+            Jogar Agora
           </button>
         </div>
+      </div>
+
+      {/* Database Loader Bar */}
+      <div className="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center gap-2">
+          <span className="text-xs uppercase font-bold text-white/60">Carregar Salvo:</span>
+          <select 
+            onChange={(e) => handleLoadQuiz(e.target.value)}
+            className="bg-black/30 border border-white/20 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-white"
+            defaultValue=""
+            disabled={isLoading}
+          >
+              <option value="" disabled>Selecione um questionário...</option>
+              {savedQuizzes.map(q => (
+                  <option key={q.id} value={q.id}>{q.title} ({new Date(q.created_at).toLocaleDateString()})</option>
+              ))}
+          </select>
+          {isLoading && <span className="text-xs animate-pulse">Carregando...</span>}
       </div>
 
       {/* Scrollable Content */}
@@ -81,7 +175,7 @@ const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) => {
             {questions.length === 0 && (
                 <div className="text-center py-12 md:py-20 text-white/50 border-2 border-dashed border-white/20 rounded-xl bg-white/5">
                     <p className="text-lg font-bold mb-2">Seu quiz está vazio!</p>
-                    <p className="text-sm">Clique abaixo para adicionar a primeira pergunta.</p>
+                    <p className="text-sm">Clique em "Adicionar Pergunta" ou "Gerar com IA".</p>
                 </div>
             )}
             
@@ -192,8 +286,5 @@ const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) => {
             </button>
         </div>
       </div>
-    </div>
-  );
+    );
 };
-
-export default QuizCreator;

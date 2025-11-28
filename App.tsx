@@ -2,10 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BroadcastMessage, GameState, Player, Quiz, Shape } from './types';
 import { AUDIO } from './constants';
 import Background from './components/Shared/Background';
-import QuizCreator from './components/Host/QuizCreator';
+import { QuizCreator } from './components/Host/QuizCreator';
 import Lobby from './components/Host/Lobby';
 import HostGame from './components/Host/HostGame';
 import PlayerView from './components/Player/PlayerView';
+import { supabase, createGameSession, registerPlayer } from './lib/supabase';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 const CHANNEL_NAME = 'kahoot-clone-2025';
 
@@ -20,6 +22,16 @@ const calculateScore = (timeLeft: number, totalTime: number, streak: number) => 
     
     return baseScore + streakBonus;
 };
+
+// --- COMPONENTE DE STATUS DA CONEXÃO ---
+const ConnectionBadge: React.FC<{ isConnected: boolean }> = ({ isConnected }) => (
+  <div className="fixed top-2 right-2 md:top-4 md:right-4 z-[100] flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 shadow-xl transition-all hover:bg-black/80 cursor-help" title={isConnected ? "Conectado ao servidor" : "Sem conexão com o servidor"}>
+    <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full transition-colors duration-500 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse'}`} />
+    <span className="text-[10px] md:text-xs font-bold text-white/90 uppercase tracking-wider">
+      {isConnected ? 'Online' : 'Offline'}
+    </span>
+  </div>
+);
 
 const App: React.FC = () => {
   const [appMode, setAppMode] = useState<'MENU' | 'HOST' | 'PLAYER'>('MENU');
@@ -37,6 +49,7 @@ const App: React.FC = () => {
   const [hasAnswered, setHasAnswered] = useState(false);
   const [myFeedback, setMyFeedback] = useState<{ isCorrect: boolean; points: number; streak: number } | null>(null);
   const [myScore, setMyScore] = useState(0);
+  const [isConnected, setIsConnected] = useState(false);
 
   // Audio
   const [isMuted, setIsMuted] = useState(false);
@@ -44,7 +57,7 @@ const App: React.FC = () => {
   const sfxRef = useRef<HTMLAudioElement | null>(null);
 
   // Comms
-  const channelRef = useRef<BroadcastChannel | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const timerRef = useRef<any>(null);
 
   // --- INIT & AUDIO ---
@@ -87,30 +100,48 @@ const App: React.FC = () => {
     }
   }, [gameState, appMode, isMuted]);
 
-  // --- BROADCAST SYSTEM ---
+  // --- SUPABASE REALTIME SYSTEM ---
   useEffect(() => {
-    channelRef.current = new BroadcastChannel(CHANNEL_NAME);
-    
-    channelRef.current.onmessage = (event) => {
-        const msg = event.data as BroadcastMessage;
-        
-        if (appMode === 'PLAYER') {
-            handlePlayerMessages(msg);
-        } else if (appMode === 'HOST') {
-            handleHostMessages(msg);
-        }
-    };
+    // 1. Create/Get the channel
+    const channel = supabase.channel(CHANNEL_NAME);
 
-    // If I just opened as player, ask for state
+    // 2. Subscribe to broadcast events
+    channel
+      .on(
+        'broadcast',
+        { event: 'game-event' },
+        (payload) => {
+          const msg = payload.payload as BroadcastMessage;
+          
+          if (appMode === 'PLAYER') {
+            handlePlayerMessages(msg);
+          } else if (appMode === 'HOST') {
+            handleHostMessages(msg);
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          setIsConnected(true);
+          console.log('Connected to Supabase Realtime');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setIsConnected(false);
+          console.log('Supabase Disconnected:', status);
+        }
+      });
+
+    channelRef.current = channel;
+
+    // If I just opened as player, ask for state (give it a moment to connect)
     if (appMode === 'PLAYER') {
-        setTimeout(() => broadcast({ type: 'REQUEST_STATE' }), 500);
+        setTimeout(() => broadcast({ type: 'REQUEST_STATE' }), 1000);
     }
 
     return () => {
-        channelRef.current?.close();
+        supabase.removeChannel(channel);
         if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [appMode]); 
+  }, [appMode]); // Re-bind if appMode changes (so the handlers use the correct mode)
 
   // --- SYNC PLAYERS HOST -> CLIENT ---
   useEffect(() => {
@@ -126,12 +157,18 @@ const App: React.FC = () => {
     setQuiz(createdQuiz);
     const newPin = Math.floor(100000 + Math.random() * 900000).toString();
     setPin(newPin);
+    
+    // DB: Create Game Session in 'jogos'
+    createGameSession(newPin, createdQuiz.title).then(() => {
+        console.log("Game session created in DB for PIN:", newPin);
+    });
+
     setGameState(GameState.LOBBY);
     setAppMode('HOST');
     // Initial broadcast
     setTimeout(() => {
         broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LOBBY, currentQuestionIndex: 0, totalQuestions: createdQuiz.questions.length, pin: newPin } });
-    }, 500);
+    }, 1000);
   };
 
   const handleHostMessages = (msg: BroadcastMessage) => {
@@ -244,8 +281,17 @@ const App: React.FC = () => {
       }
   };
 
-  const broadcast = (msg: BroadcastMessage) => {
-      channelRef.current?.postMessage(msg);
+  const broadcast = async (msg: BroadcastMessage) => {
+      if (!channelRef.current) return;
+      try {
+        await channelRef.current.send({
+            type: 'broadcast',
+            event: 'game-event',
+            payload: msg
+        });
+      } catch (err) {
+        console.error("Broadcast error", err);
+      }
   };
 
   // --- PLAYER LOGIC ---
@@ -295,9 +341,20 @@ const App: React.FC = () => {
         localStorage.setItem('kahoot-player-id', id);
       }
       broadcast({ type: 'JOIN', payload: { nickname, id } });
-      // We don't manually set GameState.LOBBY here anymore.
-      // We wait for the Host to send UPDATE_PLAYERS or SYNC_STATE
-      // But for better UX, we can set a "Connecting..." state or temporary lobby
+      
+      // DB: Register player in 'jogadores' linked to this PIN
+      // Note: We need the PIN from URL if direct join, but the PlayerView manages validation
+      // Here we assume PIN is available via URL or passed context if we refined further, 
+      // but 'pin' state in App.tsx might be empty for player.
+      // However, we can try to grab it from URL params for DB logging.
+      const urlParams = new URLSearchParams(window.location.search);
+      const pinParam = urlParams.get('pin');
+      if (pinParam) {
+          registerPlayer(pinParam, nickname).then(() => {
+              console.log("Player registered in DB");
+          });
+      }
+
       setGameState(GameState.LOBBY); 
   };
 
@@ -339,6 +396,7 @@ const App: React.FC = () => {
       return (
         <div className="relative min-h-screen font-sans text-white overflow-hidden flex flex-col items-center justify-center">
             <Background />
+            <ConnectionBadge isConnected={isConnected} />
             <div className="relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full">
                 <h1 className="text-6xl font-black mb-2 tracking-tight">Kahoot!</h1>
                 <p className="text-xl mb-12 opacity-80 font-bold text-purple-200">Experiência Clone 2025</p>
@@ -360,9 +418,14 @@ const App: React.FC = () => {
                         Entrar no Jogo
                     </button>
                 </div>
+                {!isConnected && (
+                    <p className="mt-4 text-xs text-yellow-300 animate-pulse">
+                        Conectando ao servidor...
+                    </p>
+                )}
                 <p className="mt-8 text-xs text-white/40">
-                    Hospede em um dispositivo, entre em outros usando o mesmo Wi-Fi.<br/>
-                    Desenvolvido com React.
+                    Hospede em um dispositivo, entre em outros pela internet.<br/>
+                    Powered by Supabase Realtime & DB.
                 </p>
             </div>
         </div>
@@ -396,6 +459,7 @@ const App: React.FC = () => {
       return (
         <div className="relative min-h-screen text-white overflow-hidden flex flex-col">
              <Background />
+             <ConnectionBadge isConnected={isConnected} />
              {shouldShowBackButton() && <BackButton />}
              {/* Mute Button moved to bottom-right to avoid header overlap */}
              <div className="absolute bottom-4 right-4 z-50">
@@ -435,6 +499,7 @@ const App: React.FC = () => {
   return (
     <div className="relative min-h-screen text-white overflow-hidden">
         <Background />
+        <ConnectionBadge isConnected={isConnected} />
         {shouldShowBackButton() && <BackButton />}
         <PlayerView 
             onJoin={playerJoin} 
