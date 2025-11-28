@@ -1,6 +1,7 @@
+
 // --- IMPORTS ---
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createRoot } from 'react-dom/client';
+import ReactDOM from 'react-dom/client';
 import QRCodeStyling from 'qr-code-styling';
 import { createClient } from "@supabase/supabase-js";
 
@@ -529,6 +530,11 @@ const VirtualJoystick = ({ onMove }) => {
     const knobRef = useRef(null);
     const [isActive, setIsActive] = useState(false);
     
+    // CURRENT input state (updated immediately by touch)
+    const currentVector = useRef({ x: 0, y: 0 });
+    // LAST SENT state (updated by network loop)
+    const lastSentVector = useRef({ x: 0, y: 0 });
+
     // 1. INPUT LOOP (Runs as fast as possible to update UI)
     useEffect(() => {
         const joystick = joystickRef.current;
@@ -537,36 +543,35 @@ const VirtualJoystick = ({ onMove }) => {
         const handleStart = (e) => {
             if (e.cancelable) e.preventDefault();
             setIsActive(true);
-            updateVisuals(e);
+            updateVisualsAndVector(e);
         };
 
         const handleMove = (e) => {
             if (!isActive && !e.type.startsWith('touch')) return;
             if (e.cancelable) e.preventDefault();
-            updateVisuals(e);
+            updateVisualsAndVector(e);
         };
 
         const handleEnd = (e) => {
             if (e.cancelable) e.preventDefault();
-            
-            // Calculate final vector to send 'shoot' command
-            // We use the last calculated vector from the move event
-            if (lastCalculatedVector.current.x !== 0 || lastCalculatedVector.current.y !== 0) {
-                 onMove(lastCalculatedVector.current);
-            }
-            
             setIsActive(false);
-            lastCalculatedVector.current = { x: 0, y: 0 };
+            
+            // Reset Vector Logic
+            currentVector.current = { x: 0, y: 0 };
             
             // Reset Visuals
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(0px, 0px)`;
             }
+            
+            // Force immediate send to stop player
+            if (lastSentVector.current.x !== 0 || lastSentVector.current.y !== 0) {
+                onMove({ x: 0, y: 0 });
+                lastSentVector.current = { x: 0, y: 0 };
+            }
         };
 
-        const lastCalculatedVector = useRef({ x: 0, y: 0 });
-
-        const updateVisuals = (e) => {
+        const updateVisualsAndVector = (e) => {
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
@@ -591,10 +596,10 @@ const VirtualJoystick = ({ onMove }) => {
                 knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
             }
 
-            // Update Vector Ref for sending on release
+            // Update Current Vector Ref
             const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
             const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
-            lastCalculatedVector.current = { x: normalizedX, y: normalizedY };
+            currentVector.current = { x: normalizedX, y: normalizedY };
         };
 
         joystick.addEventListener('touchstart', handleStart, { passive: false });
@@ -616,7 +621,26 @@ const VirtualJoystick = ({ onMove }) => {
             window.removeEventListener('mousemove', handleWindowMove);
             window.removeEventListener('mouseup', handleWindowEnd);
         };
-    }, [isActive, onMove]); // Re-bind on active state change
+    }, [isActive]); // Re-bind on active state change
+
+    // 2. NETWORK LOOP (Runs at fixed interval to send data)
+    useEffect(() => {
+        // 50ms interval = 20 updates per second (Smooth enough, low bandwidth)
+        const intervalId = setInterval(() => {
+            const curr = currentVector.current;
+            const last = lastSentVector.current;
+
+            // Only send if different (with small epsilon for float drift)
+            if (Math.abs(curr.x - last.x) > 0.05 || Math.abs(curr.y - last.y) > 0.05) {
+                onMove(curr);
+                lastSentVector.current = curr;
+            } 
+            // Also send if active and we haven't sent in a while (keep-alive roughly) 
+            // but the above check is usually enough for movement.
+        }, 50);
+
+        return () => clearInterval(intervalId);
+    }, [onMove]);
 
     return (
         React.createElement('div', { 
@@ -633,7 +657,7 @@ const VirtualJoystick = ({ onMove }) => {
                     className: "w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-2xl absolute border-4 border-white/50 pointer-events-none will-change-transform",
                 })
             ),
-            React.createElement('p', { className: "mt-12 text-white/50 font-bold uppercase tracking-widest text-sm pointer-events-none select-none" }, "Arraste e Solte para lançar!")
+            React.createElement('p', { className: "mt-12 text-white/50 font-bold uppercase tracking-widest text-sm pointer-events-none select-none" }, "Arraste para mover")
         )
     );
 };
@@ -646,6 +670,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     
     // Refs for physics loop (avoids React state batching issues)
     const positionsRef = useRef({});
+    // NEW: Separate velocities to avoid race condition with animation loop
+    const velocitiesRef = useRef({});
 
     // Dynamic Player Size Calculation
     const playerSizeVw = useMemo(() => {
@@ -666,25 +692,20 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 positionsRef.current[p.id] = { 
                     x: 10 + (Math.random() * 80), 
                     y: 10 + (Math.random() * 80), 
-                    vx: 0,
-                    vy: 0,
                     color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
                 };
+             }
+             if (!velocitiesRef.current[p.id]) {
+                 velocitiesRef.current[p.id] = { x: 0, y: 0 };
              }
         });
         setRenderPositions({ ...positionsRef.current });
     }, [players]);
 
-    // Socket Handler - Applies Impulse (Launch)
+    // Socket Handler - Updates Velocity Ref only
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
-            // Apply instant velocity based on drag vector (Slingshot effect)
-            if (positionsRef.current[playerId]) {
-                // Multiplier determines "launch force"
-                const LAUNCH_FORCE = 3.0; 
-                positionsRef.current[playerId].vx = vec.x * LAUNCH_FORCE;
-                positionsRef.current[playerId].vy = vec.y * LAUNCH_FORCE;
-            }
+            velocitiesRef.current[playerId] = vec;
         };
         return () => { window.updatePlayerVelocity = null; };
     }, []);
@@ -726,7 +747,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         }
 
         // 3. Update Physics & Collision
-        const friction = 0.94; // Slow down factor (0.9 to 0.99)
+        const speed = 0.8; // Increased speed for better responsiveness (was 0.6)
         const radius = playerSizeVw / 2; // Radius in VW (approximation)
         
         const nextPos = { ...positionsRef.current };
@@ -735,35 +756,17 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         // Move players
         Object.keys(nextPos).forEach(pid => {
             const p = nextPos[pid];
-            
-            // Apply Velocity
-            if (Math.abs(p.vx) > 0.01 || Math.abs(p.vy) > 0.01) {
-                let nx = p.x + p.vx;
-                let ny = p.y + p.vy;
-                
-                // Boundaries (Bounce or Clamp? Let's Clamp and kill velocity for now)
-                if (nx < radius || nx > 100 - radius) {
-                    nx = Math.max(radius, Math.min(100 - radius, nx));
-                    p.vx = -p.vx * 0.5; // Bounce a little
-                }
-                if (ny < radius || ny > 100 - radius) {
-                    ny = Math.max(radius, Math.min(100 - radius, ny));
-                    p.vy = -p.vy * 0.5; // Bounce a little
-                }
-                
-                // Apply Friction
-                p.vx *= friction;
-                p.vy *= friction;
-                
-                // Update Pos
-                p.x = nx;
-                p.y = ny;
-                
-                // Stop completely if slow
-                if (Math.abs(p.vx) < 0.01) p.vx = 0;
-                if (Math.abs(p.vy) < 0.01) p.vy = 0;
+            const v = velocitiesRef.current[pid] || { x: 0, y: 0 }; // Read current input
 
-                nextPos[pid] = p;
+            if (v.x !== 0 || v.y !== 0) {
+                let nx = p.x + (v.x * speed);
+                let ny = p.y + (v.y * speed);
+                
+                // Boundaries (keep entire ball inside)
+                nx = Math.max(radius, Math.min(100 - radius, nx));
+                ny = Math.max(radius, Math.min(100 - radius, ny));
+                
+                nextPos[pid] = { ...p, x: nx, y: ny };
                 hasChanges = true;
             }
         });
@@ -2284,6 +2287,8 @@ const App = () => {
   const myNickname = myPlayer ? myPlayer.nickname : "";
   const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
 
+  console.log("Rendering App...");
+
   return (
     React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
       // Notification Modal
@@ -2374,5 +2379,5 @@ const App = () => {
 };
 
 // --- RENDER APP ---
-const root = createRoot(document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(React.createElement(App));
