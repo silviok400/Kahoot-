@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>S.art quiz</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap" rel="stylesheet">
@@ -12,7 +11,9 @@
         font-family: 'Poppins', sans-serif;
         background-color: #46178f;
         color: white;
-        overflow: hidden;
+        overflow: hidden; /* Keeps the app full screen app-like */
+        margin: 0;
+        padding: 0;
       }
       /* Hide all scrollbars */
       * {
@@ -78,6 +79,6 @@
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/index.js"></script>
   </body>
 </html>
