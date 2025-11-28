@@ -406,7 +406,7 @@ const QRCodeView = ({ url, size }) => {
 
 const Lobby = ({ pin, players, onStart, onCancel }) => {
   const [isExiting, setIsExiting] = useState(false);
-  const origin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://kahoot.it';
+  const origin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'https://s.art-quiz.it';
   const joinUrl = `${origin}/?pin=${pin}`;
 
   const handleStart = () => {
@@ -423,7 +423,7 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
             ),
             React.createElement('div', { className: "text-center md:text-left" },
                 React.createElement('p', { className: "text-gray-500 font-bold text-sm md:text-base uppercase tracking-wider" }, "Entre em"),
-                React.createElement('div', { className: "text-4xl md:text-5xl font-black text-indigo-900 tracking-tight leading-none my-1" }, "kahoot.it"),
+                React.createElement('div', { className: "text-4xl md:text-5xl font-black text-indigo-900 tracking-tight leading-none my-1" }, "s.art-quiz.it"),
                 React.createElement('p', { className: "text-sm text-gray-400 font-bold font-mono hidden md:block max-w-[250px] truncate select-all" }, joinUrl)
             )
         ),
@@ -431,11 +431,7 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
              React.createElement(QRCodeView, { url: joinUrl, size: 200 })
         ),
         React.createElement('div', { className: "text-center md:text-right w-full md:w-auto" },
-            React.createElement('div', { className: "flex items-center justify-center md:justify-end gap-2" },
-                React.createElement('div', { className: `w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]` }),
-                React.createElement('p', { className: "text-gray-500 font-bold text-xs uppercase tracking-wider" }, "Online")
-            ),
-            React.createElement('p', { className: "text-gray-500 font-bold text-sm md:text-base uppercase tracking-wider mt-1" }, "PIN do Jogo"),
+            React.createElement('p', { className: "text-gray-500 font-bold text-sm md:text-base uppercase tracking-wider" }, "PIN do Jogo"),
             React.createElement('div', { className: "text-6xl md:text-8xl font-black tracking-widest text-black leading-none select-all" }, pin)
         )
       ),
@@ -568,8 +564,8 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
         React.createElement('div', { className: "bg-white text-black p-8 rounded-lg shadow-2xl max-w-sm w-full text-center" },
             React.createElement('h1', { className: "text-4xl font-black mb-6 text-indigo-900" }, "S.art quiz"),
             React.createElement('form', { onSubmit: handleJoin },
-              React.createElement('input', { type: "text", placeholder: "PIN do Jogo", className: "w-full p-3 border-2 border-gray-300 rounded mb-4 text-center font-bold text-xl uppercase text-black placeholder-gray-400", value: pin, onChange: e => setPin(e.target.value) }),
-              React.createElement('input', { type: "text", placeholder: "Apelido", className: "w-full p-3 border-2 border-gray-300 rounded mb-6 text-center font-bold text-xl text-black placeholder-gray-400", value: inputName, onChange: e => setInputName(e.target.value) }),
+              React.createElement('input', { type: "text", placeholder: "PIN do Jogo", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-4 text-center font-bold text-xl text-white placeholder-gray-400", value: pin, onChange: e => setPin(e.target.value) }),
+              React.createElement('input', { type: "text", placeholder: "Apelido", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-6 text-center font-bold text-xl text-white placeholder-gray-400", value: inputName, onChange: e => setInputName(e.target.value) }),
               React.createElement('button', { type: "submit", className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors" }, "Entrar")
             )
         )
@@ -666,17 +662,16 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
 const CHANNEL_NAME = 'kahoot-clone-2025';
 
 const calculateScore = (timeLeft, totalTime, streak) => {
-    const percentage = timeLeft / totalTime;
-    const baseScore = Math.floor(500 + (percentage * 500));
-    const streakBonus = Math.min(streak * 100, 500);
-    return baseScore + streakBonus;
-};
+    // Pontos por velocidade: até 1000 pontos.
+    // Quanto mais rápida a resposta, mais próximo de 1000.
+    const timePoints = Math.round(1000 * (timeLeft / totalTime));
 
-const ConnectionBadge = ({ isConnected }) => (
-  React.createElement('div', { className: "fixed top-2 right-2 md:top-4 md:right-4 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md w-8 h-8 md:w-10 md:h-10 rounded-full border border-white/10 shadow-xl transition-all hover:bg-black/80 cursor-help", title: isConnected ? "Conectado ao servidor" : "Sem conexão com o servidor" },
-    React.createElement('div', { className: `w-2 h-2 md:w-3 md:h-3 rounded-full transition-colors duration-500 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse'}` })
-  )
-);
+    // Bônus por sequência de respostas, começando da 2ª resposta correta consecutiva.
+    // +50 para 2, +100 para 3, até um máximo de +500.
+    const streakBonus = streak > 1 ? Math.min((streak - 1) * 50, 500) : 0;
+
+    return timePoints + streakBonus;
+};
 
 const ConfirmModal = ({ onConfirm, onCancel, text }) => (
     React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" },
@@ -1252,7 +1247,6 @@ const App = () => {
       appMode === 'MENU' ? (
           React.createElement('div', { className: "relative min-h-screen flex flex-col items-center justify-center" },
             React.createElement(Background, null),
-            React.createElement(ConnectionBadge, { isConnected: isConnected }),
             React.createElement('div', { className: "relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full" },
                 React.createElement('h1', { className: "text-6xl font-black mb-12 tracking-tight" }, "S.art quiz"),
                 React.createElement('div', { className: "flex flex-col gap-4" },
@@ -1278,7 +1272,6 @@ const App = () => {
       ) : appMode === 'HOST' ? (
         React.createElement('div', { className: "relative min-h-screen flex flex-col" },
              React.createElement(Background, null),
-             React.createElement(ConnectionBadge, { isConnected: isConnected }),
              shouldShowBackButton() && React.createElement(BackButton, null),
              React.createElement('div', { className: "absolute bottom-4 right-4 z-50" },
                 React.createElement('button', { onClick: toggleMute, className: "bg-white/20 p-3 rounded-full hover:bg-white/40 transition-colors shadow-lg border border-white/10", title: isMuted ? "Ativar som" : "Mudo" }, isMuted ? '🔇' : '🔊')
@@ -1294,7 +1287,6 @@ const App = () => {
       ) : ( // PLAYER MODE
         React.createElement('div', null,
             React.createElement(Background, null),
-            React.createElement(ConnectionBadge, { isConnected: isConnected }),
             shouldShowBackButton() && React.createElement(BackButton, null),
             React.createElement(PlayerView, { 
                 onJoin: playerJoin, 
