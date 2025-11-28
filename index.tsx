@@ -4,6 +4,12 @@ import ReactDOM from 'react-dom/client';
 import QRCodeStyling from 'qr-code-styling';
 import { createClient } from "@supabase/supabase-js";
 
+declare global {
+    interface Window {
+        updatePlayerVelocity: ((playerId: string, vec: { x: number; y: number }) => void) | null;
+    }
+}
+
 // --- From types.ts ---
 const GameState = {
     MENU: 'MENU',
@@ -14,6 +20,7 @@ const GameState = {
     ANSWER_REVEAL: 'ANSWER_REVEAL',
     LEADERBOARD: 'LEADERBOARD',
     PODIUM: 'PODIUM',
+    MINIGAME: 'MINIGAME', // New state for the bonus game
 };
 const Shape = {
     TRIANGLE: 'triangle', // Red
@@ -41,6 +48,9 @@ const AUDIO = {
   CORRECT: 'https://cdn.pixabay.com/audio/2021/08/04/audio_0625c153e2.mp3',
   WRONG: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c6ccf3232f.mp3',
   TIME_UP: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
+  BONUS_MUSIC: 'https://cdn.pixabay.com/audio/2021/09/06/audio_98777e4242.mp3', // Funky music for bonus
+  COLLECT: 'https://cdn.pixabay.com/audio/2022/03/24/audio_c8c2a382aa.mp3',
+  EXPLOSION: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
 };
 
 // --- From lib/supabase.ts ---
@@ -169,6 +179,352 @@ const Background = () => {
   );
 };
 
+// --- Custom UI Components ---
+const CustomDropdown = ({ options, value, onChange, label }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const wrapperRef = useRef(null);
+
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [wrapperRef]);
+
+    const selectedOption = options.find(opt => opt.value === value) || options[0];
+
+    return (
+        React.createElement('div', { className: "relative", ref: wrapperRef },
+            React.createElement('label', { className: "text-[10px] uppercase font-bold text-white/60 mb-1 block" }, label),
+            React.createElement('button', {
+                type: "button",
+                onClick: () => setIsOpen(!isOpen),
+                className: "w-full p-3 rounded-lg bg-black/40 border border-white/10 text-white hover:bg-black/60 hover:border-white/30 focus:border-indigo-500 outline-none text-left flex justify-between items-center transition-all shadow-sm"
+            },
+                React.createElement('span', { className: "text-sm font-bold" }, selectedOption?.label),
+                React.createElement('span', { className: `text-xs opacity-50 transform transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}` }, "▼")
+            ),
+            isOpen && React.createElement('div', { className: "absolute top-full left-0 w-full bg-[#2d2a4c] border border-white/20 rounded-lg mt-2 z-50 shadow-2xl overflow-hidden animate-zoom-in origin-top" },
+                React.createElement('div', { className: "max-h-60 overflow-y-auto" },
+                    options.map(opt => (
+                        React.createElement('button', {
+                            key: opt.value,
+                            type: "button",
+                            onClick: () => {
+                                onChange(opt.value);
+                                setIsOpen(false);
+                            },
+                            className: `w-full text-left px-4 py-3 text-sm hover:bg-indigo-600/20 transition-colors border-b border-white/5 last:border-0 flex items-center justify-between group ${value === opt.value ? 'bg-indigo-600/30 text-white' : 'text-gray-300'}`
+                        }, 
+                           React.createElement('span', { className: value === opt.value ? 'font-bold' : '' }, opt.label),
+                           value === opt.value && React.createElement('span', { className: "text-indigo-400 font-bold" }, "✓")
+                        )
+                    ))
+                )
+            )
+        )
+    );
+};
+
+// --- Joystick Component for Bonus Game ---
+const VirtualJoystick = ({ onMove }) => {
+    const joystickRef = useRef(null);
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [isActive, setIsActive] = useState(false);
+    
+    // Throttle send rate to avoid flooding
+    const lastSendTime = useRef(0);
+
+    const handleStart = (e) => {
+        setIsActive(true);
+        handleMove(e);
+    };
+
+    const handleEnd = () => {
+        setIsActive(false);
+        setPosition({ x: 0, y: 0 });
+        onMove({ x: 0, y: 0 });
+    };
+
+    const handleMove = useCallback((e) => {
+        if (!isActive || !joystickRef.current) return;
+        
+        // Prevent scrolling on touch
+        if(e.cancelable) e.preventDefault();
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        const rect = joystickRef.current.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const maxRadius = rect.width / 2;
+
+        let dx = clientX - centerX;
+        let dy = clientY - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Clamp to circle
+        if (distance > maxRadius) {
+            const angle = Math.atan2(dy, dx);
+            dx = Math.cos(angle) * maxRadius;
+            dy = Math.sin(angle) * maxRadius;
+        }
+
+        // Normalize -1 to 1
+        const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
+        const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
+
+        setPosition({ x: dx, y: dy });
+
+        const now = Date.now();
+        if (now - lastSendTime.current > 50) { // Send every 50ms
+            onMove({ x: normalizedX, y: normalizedY });
+            lastSendTime.current = now;
+        }
+    }, [isActive, onMove]);
+
+    return (
+        React.createElement('div', { className: "flex flex-col items-center justify-center h-full select-none touch-none" },
+            React.createElement('h3', { className: "text-2xl font-black mb-8 animate-pulse text-yellow-300" }, "Controle o Personagem!"),
+            React.createElement('div', { 
+                ref: joystickRef,
+                className: "w-64 h-64 bg-white/10 rounded-full border-4 border-white/30 relative flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)]",
+                onMouseDown: handleStart,
+                onMouseMove: handleMove,
+                onMouseUp: handleEnd,
+                onMouseLeave: handleEnd,
+                onTouchStart: handleStart,
+                onTouchMove: handleMove,
+                onTouchEnd: handleEnd
+            },
+                React.createElement('div', { 
+                    className: "w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-2xl absolute transition-transform duration-75 ease-linear border-4 border-white/50",
+                    style: { transform: `translate(${position.x}px, ${position.y}px)` }
+                })
+            ),
+            React.createElement('p', { className: "mt-8 text-white/50 font-bold uppercase tracking-widest text-sm" }, "Use o analógico para pegar bolas!")
+        )
+    );
+};
+
+// --- Bonus Game Host Component ---
+const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
+    const [timeLeft, setTimeLeft] = useState(30);
+    const [gameItems, setGameItems] = useState([]);
+    const [playerPositions, setPlayerPositions] = useState({});
+    
+    // Game loop refs
+    const requestRef = useRef();
+    const startTimeRef = useRef(Date.now());
+    const lastItemSpawn = useRef(0);
+    
+    // Players ref for game loop access
+    const playersRef = useRef(players);
+    useEffect(() => { playersRef.current = players; }, [players]);
+    
+    // Initialize positions
+    useEffect(() => {
+        const initialPos = {};
+        players.forEach((p, i) => {
+            initialPos[p.id] = { 
+                x: 10 + (Math.random() * 80), // % 
+                y: 10 + (Math.random() * 80), // %
+                vx: 0, 
+                vy: 0,
+                color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
+            };
+        });
+        setPlayerPositions(initialPos);
+    }, []); // Run once on mount
+
+    // Helper to expose position update to parent (App)
+    useEffect(() => {
+        window.updatePlayerVelocity = (playerId, vec) => {
+            setPlayerPositions(prev => {
+                if (!prev[playerId]) return prev;
+                return {
+                    ...prev,
+                    [playerId]: { ...prev[playerId], vx: vec.x, vy: vec.y }
+                };
+            });
+        };
+        return () => { window.updatePlayerVelocity = null; };
+    }, []);
+
+    const animate = () => {
+        const now = Date.now();
+        const deltaTime = (now - startTimeRef.current) / 1000; // seconds
+        
+        // 1. Update Timer
+        if (Math.floor(deltaTime) > (30 - timeLeft)) {
+            setTimeLeft(prev => {
+                if (prev <= 1) {
+                    onEndGame();
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }
+
+        // 2. Spawn Items (Balls: 70%, Coins: 20%, Bombs: 10%)
+        if (now - lastItemSpawn.current > 800) { // Every 800ms
+            const typeRoll = Math.random();
+            let type = 'ball';
+            let value = 50;
+            let size = 4; // vw
+
+            if (typeRoll > 0.9) { type = 'bomb'; value = -100; size = 5; }
+            else if (typeRoll > 0.7) { type = 'coin'; value = 200; size = 4; }
+
+            setGameItems(prev => [...prev, {
+                id: Date.now() + Math.random(),
+                x: 5 + Math.random() * 90,
+                y: 5 + Math.random() * 90,
+                type,
+                value,
+                size
+            }]);
+            lastItemSpawn.current = now;
+        }
+
+        // 3. Update Physics & Collision
+        setPlayerPositions(prevPos => {
+            const nextPos = { ...prevPos };
+            const speed = 0.5; // movement speed per frame
+            
+            // Move players
+            Object.keys(nextPos).forEach(pid => {
+                const p = nextPos[pid];
+                let nx = p.x + (p.vx * speed);
+                let ny = p.y + (p.vy * speed);
+                
+                // Boundaries (0-100%)
+                nx = Math.max(2, Math.min(98, nx));
+                ny = Math.max(2, Math.min(98, ny));
+                
+                nextPos[pid] = { ...p, x: nx, y: ny };
+            });
+
+            // Check Collisions
+            setGameItems(prevItems => {
+                const survivingItems = [];
+                const scoresToUpdate = {};
+
+                prevItems.forEach(item => {
+                    let collected = false;
+                    Object.keys(nextPos).forEach(pid => {
+                        if (collected) return;
+                        const p = nextPos[pid];
+                        
+                        // Simple AABB/Circle approximation collision
+                        // Since positions are %, we approximate distance. 
+                        // Assuming 16/9 aspect ratio roughly.
+                        const dx = (p.x - item.x);
+                        const dy = (p.y - item.y) * (16/9); 
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        
+                        if (dist < 3.5) { // Collision threshold
+                            collected = true;
+                            if (!scoresToUpdate[pid]) scoresToUpdate[pid] = 0;
+                            scoresToUpdate[pid] += item.value;
+                        }
+                    });
+
+                    if (!collected) {
+                        // Despawn old items to keep performance
+                        if (now - item.id > 10000) return; // 10s lifetime
+                        survivingItems.push(item);
+                    }
+                });
+
+                // Batch update scores
+                if (Object.keys(scoresToUpdate).length > 0) {
+                    onUpdateScores(scoresToUpdate);
+                }
+
+                return survivingItems;
+            });
+
+            return nextPos;
+        });
+
+        if (timeLeft > 0) {
+            requestRef.current = requestAnimationFrame(animate);
+        }
+    };
+
+    useEffect(() => {
+        requestRef.current = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(requestRef.current);
+    }, [timeLeft]);
+
+    return (
+        React.createElement('div', { className: "relative w-full h-full bg-slate-900 overflow-hidden select-none" },
+            // HUD
+            React.createElement('div', { className: "absolute top-4 left-0 w-full flex justify-center z-50 pointer-events-none" },
+                React.createElement('div', { className: "bg-white/20 backdrop-blur-md px-8 py-2 rounded-full border border-white/30 shadow-2xl" },
+                    React.createElement('span', { className: "text-4xl font-black text-white drop-shadow-md" }, `Tempo: ${timeLeft}s`)
+                )
+            ),
+            
+            // Grid Lines for effect
+            React.createElement('div', { className: "absolute inset-0 opacity-20", 
+                style: { backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '50px 50px' } 
+            }),
+
+            // Items
+            gameItems.map(item => (
+                React.createElement('div', { 
+                    key: item.id,
+                    className: "absolute transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center transition-transform",
+                    style: { 
+                        left: `${item.x}%`, 
+                        top: `${item.y}%`, 
+                        width: `${item.size}vw`, 
+                        height: `${item.size}vw`,
+                        animation: 'zoom-in 0.3s'
+                    }
+                },
+                    item.type === 'bomb' ? (
+                        React.createElement('span', { className: "text-4xl animate-pulse filter drop-shadow-[0_0_10px_rgba(255,0,0,0.8)]" }, "💣")
+                    ) : item.type === 'coin' ? (
+                        React.createElement('div', { className: "w-full h-full rounded-full bg-yellow-400 border-4 border-yellow-600 shadow-lg flex items-center justify-center animate-[bounce_1s_infinite]" },
+                             React.createElement('span', { className: "font-black text-yellow-800 text-lg" }, "$")
+                        )
+                    ) : (
+                        React.createElement('div', { className: "w-full h-full rounded-full bg-gradient-to-tr from-cyan-400 to-blue-600 shadow-[0_0_15px_rgba(0,255,255,0.5)] border-2 border-white/50" })
+                    )
+                )
+            )),
+
+            // Players
+            Object.keys(playerPositions).map(pid => {
+                const p = playerPositions[pid];
+                const playerInfo = players.find(pl => pl.id === pid);
+                return React.createElement('div', {
+                    key: pid,
+                    className: "absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all duration-75 ease-linear will-change-transform",
+                    style: { left: `${p.x}%`, top: `${p.y}%` }
+                },
+                    React.createElement('div', { 
+                        className: "w-12 h-12 md:w-16 md:h-16 rounded-full border-4 border-white shadow-xl flex items-center justify-center text-white font-bold text-xs overflow-hidden",
+                        style: { backgroundColor: p.color }
+                    },
+                         playerInfo ? playerInfo.nickname.substring(0,2).toUpperCase() : '??'
+                    ),
+                    React.createElement('span', { className: "mt-1 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-sm whitespace-nowrap" }, playerInfo?.nickname)
+                );
+            })
+        )
+    );
+};
+
 // --- From components/Host/QuizCreator.tsx ---
 const SaveQuizModal = ({ quizTitle, onSave, onCancel, onError }) => {
     const [name, setName] = useState(quizTitle);
@@ -225,6 +581,7 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
       id: `q-${Date.now()}`,
       text: "Nova Pergunta",
       timeLimit: 20,
+      points: 100, // Default requested by user
       answers: [
         { id: `a-1`, text: "Resposta 1", isCorrect: true, shape: Shape.TRIANGLE },
         { id: `a-2`, text: "Resposta 2", isCorrect: false, shape: Shape.DIAMOND },
@@ -275,6 +632,23 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
       handleFileSelect(qIndex, file);
   };
 
+  const timeOptions = [
+    { value: 5, label: "5 segundos" },
+    { value: 10, label: "10 segundos" },
+    { value: 20, label: "20 segundos" },
+    { value: 30, label: "30 segundos" },
+    { value: 60, label: "60 segundos" },
+    { value: 120, label: "120 segundos" },
+  ];
+
+  const pointOptions = [
+    { value: 0, label: "0 pontos" },
+    { value: 100, label: "100 pontos (Padrão)" },
+    { value: 500, label: "500 pontos" },
+    { value: 1000, label: "1000 pontos" },
+    { value: 2000, label: "2000 pontos (Dobro)" },
+  ];
+
   return React.createElement('div', { className: "relative z-10 flex flex-col w-full h-[100dvh] md:h-[90vh] md:max-w-5xl md:mx-auto bg-slate-900/90 md:bg-white/10 backdrop-blur-md md:rounded-xl border-none md:border border-white/20 shadow-2xl md:mt-4 overflow-hidden" },
       isSaveModalOpen && React.createElement(SaveQuizModal, {
           quizTitle: title,
@@ -287,7 +661,7 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
       }),
       React.createElement('div', { className: "flex flex-col md:flex-row justify-between items-center p-4 bg-black/20 border-b border-white/10 shrink-0 gap-3" },
         React.createElement('div', { className: "flex items-center gap-4 w-full md:w-auto text-center md:text-left" },
-          React.createElement('h2', { className: "text-xl md:text-3xl font-black text-white" }, "Criar S.art quiz")
+          React.createElement('h2', { className: "text-xl md:text-3xl font-black text-white" }, "Criar quiz")
         ),
         React.createElement('div', { className: "flex items-center gap-2 md:gap-4 w-full md:w-auto justify-end" },
             React.createElement('div', { className: "flex gap-2 ml-auto" },
@@ -310,23 +684,26 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
                 )
             ),
             questions.map((q, qIndex) => (
-            React.createElement('div', { key: q.id, className: "bg-white/5 p-4 rounded-xl border border-white/10 shadow-lg relative group" },
+            React.createElement('div', { key: q.id, className: "bg-white/5 p-4 rounded-xl border border-white/10 shadow-lg relative group", style: { zIndex: questions.length - qIndex } },
                 React.createElement('div', { className: "flex justify-between items-center mb-3" },
                     React.createElement('h3', { className: "font-bold text-white/80 text-sm uppercase" }, `Pergunta ${qIndex + 1}`),
                     React.createElement('button', { onClick: () => setQuestions(questions.filter((_, i) => i !== qIndex)), className: "text-red-400 hover:text-red-300 p-1 hover:bg-red-400/10 rounded", title: "Excluir Pergunta" }, "🗑️")
                 ),
                 React.createElement('input', { value: q.text, onChange: (e) => updateQuestion(qIndex, 'text', e.target.value), className: "w-full p-3 mb-4 text-lg md:text-xl font-bold text-center rounded-lg bg-white text-black placeholder-gray-400 focus:ring-4 ring-indigo-500/50 outline-none", placeholder: "Digite a pergunta aqui..." }),
                 React.createElement('div', { className: "flex flex-col md:flex-row gap-3 mb-4" },
-                    React.createElement('div', { className: "w-full md:w-1/3" },
-                        React.createElement('label', { className: "text-[10px] uppercase font-bold text-white/60 mb-1 block" }, "Tempo (s)"),
-                        React.createElement('select', { value: q.timeLimit, onChange: (e) => updateQuestion(qIndex, 'timeLimit', parseInt(e.target.value)), className: "w-full p-2 rounded bg-black/30 border border-white/20 text-white focus:border-white outline-none" },
-                            React.createElement('option', { value: 5 }, "5 segundos"),
-                            React.createElement('option', { value: 10 }, "10 segundos"),
-                            React.createElement('option', { value: 20 }, "20 segundos"),
-                            React.createElement('option', { value: 30 }, "30 segundos"),
-                            React.createElement('option', { value: 60 }, "60 segundos"),
-                            React.createElement('option', { value: 120 }, "120 segundos")
-                        )
+                    React.createElement('div', { className: "w-full md:w-1/3 flex flex-col gap-3" },
+                        React.createElement(CustomDropdown, {
+                            label: "Tempo (s)",
+                            options: timeOptions,
+                            value: q.timeLimit,
+                            onChange: (val) => updateQuestion(qIndex, 'timeLimit', val)
+                        }),
+                        React.createElement(CustomDropdown, {
+                            label: "Pontos",
+                            options: pointOptions,
+                            value: q.points || 100,
+                            onChange: (val) => updateQuestion(qIndex, 'points', val)
+                        })
                     ),
                     React.createElement('div', { className: "w-full md:w-2/3" },
                         React.createElement('label', { className: "text-[10px] uppercase font-bold text-white/60 mb-1 block" }, "Imagem (Opcional)"),
@@ -341,7 +718,7 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
                         ) : (
                             React.createElement('label', {
                                 htmlFor: `file-upload-${q.id}`,
-                                className: 'flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-white/30 rounded-lg cursor-pointer bg-black/30 hover:bg-black/50 transition-colors',
+                                className: 'flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-white/30 rounded-lg cursor-pointer bg-black/30 hover:bg-black/50 transition-colors',
                                 onDragOver: handleDragOver,
                                 onDrop: (e) => handleDrop(e, qIndex)
                             },
@@ -463,7 +840,7 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
 };
 
 // --- From components/Host/HostGame.tsx ---
-const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext, onEndGame }) => {
+const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext, onEndGame, onStartBonusGame, onUpdateScores }) => {
   const question = quiz.questions[currentQuestionIndex];
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
@@ -479,6 +856,13 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
           React.createElement('div', { className: "text-[12rem] font-black" }, timeLeft),
           React.createElement('p', { className: "text-2xl mt-8" }, "Prepare-se!")
         );
+
+      case GameState.MINIGAME:
+          return React.createElement(BonusGameHost, { 
+              players: players,
+              onUpdateScores: onUpdateScores,
+              onEndGame: onNext // When time up, go to Leaderboard (or next state)
+          });
 
       case GameState.ANSWER_REVEAL:
           const totalAnswers = players.filter(p => p.lastAnswerShape).length;
@@ -533,7 +917,10 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
                 )
               ))
             ),
-            React.createElement('button', { onClick: isPodium ? onEndGame : onNext, className: "mt-auto mb-10 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105" }, isPodium ? 'Voltar ao Menu' : 'Próxima Pergunta')
+            React.createElement('div', { className: "mt-auto mb-10 flex gap-4" },
+                !isPodium && React.createElement('button', { onClick: onStartBonusGame, className: "bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105" }, '🎮 Rodada Bônus'),
+                React.createElement('button', { onClick: isPodium ? onEndGame : onNext, className: "bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105" }, isPodium ? 'Voltar ao Menu' : 'Próxima Pergunta')
+            )
           )
         );
 
@@ -574,7 +961,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
 };
 
 // --- From components/Player/PlayerView.tsx ---
-const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, nickname, feedback, showNotification }) => {
+const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, score, place, nickname, feedback, showNotification }) => {
   const [inputName, setInputName] = useState("");
   const [pin, setPin] = useState("");
   const [joined, setJoined] = useState(false);
@@ -610,6 +997,15 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
         )
       )
     );
+  }
+
+  // --- BONUS GAME VIEW ---
+  if (gameState === GameState.MINIGAME) {
+      return (
+          React.createElement('div', { className: "fixed inset-0 z-50 bg-slate-900 flex flex-col items-center justify-center" },
+              React.createElement(VirtualJoystick, { onMove: onJoystickMove })
+          )
+      );
   }
 
   // Only show full screen feedback during ANSWER_REVEAL state
@@ -718,10 +1114,10 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
 // --- From App.tsx ---
 const CHANNEL_NAME = 'kahoot-clone-2025';
 
-const calculateScore = (timeLeft, totalTime, streak) => {
-    // Pontos por velocidade: até 1000 pontos.
-    // Quanto mais rápida a resposta, mais próximo de 1000.
-    const timePoints = Math.round(1000 * (timeLeft / totalTime));
+const calculateScore = (timeLeft, totalTime, streak, maxPoints) => {
+    // Pontos por velocidade: até maxPoints pontos.
+    // Quanto mais rápida a resposta, mais próximo de maxPoints.
+    const timePoints = Math.round(maxPoints * (timeLeft / totalTime));
 
     // Bônus por sequência de respostas, começando da 2ª resposta correta consecutiva.
     // +50 para 2, +100 para 3, até um máximo de +500.
@@ -952,6 +1348,10 @@ const App = () => {
     if (!bgMusicRef.current || isMuted) return;
 
     if (appMode === 'HOST' && (gameState === GameState.LOBBY || gameState === GameState.LEADERBOARD)) {
+        if (bgMusicRef.current.src !== AUDIO.LOBBY_MUSIC) bgMusicRef.current.src = AUDIO.LOBBY_MUSIC;
+        bgMusicRef.current.play().catch(() => {});
+    } else if (gameState === GameState.MINIGAME) {
+        if (bgMusicRef.current.src !== AUDIO.BONUS_MUSIC) bgMusicRef.current.src = AUDIO.BONUS_MUSIC;
         bgMusicRef.current.play().catch(() => {});
     } else if (gameState === GameState.COUNTDOWN || gameState === GameState.QUESTION) {
         bgMusicRef.current.pause(); 
@@ -1035,6 +1435,11 @@ const App = () => {
             broadcast({ type: 'SYNC_STATE', payload: { state: gameStateRef.current, currentQuestionIndex: qIndexRef.current, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
             broadcast({ type: 'UPDATE_PLAYERS', payload: playersRef.current });
         }
+    } else if (msg.type === 'PLAYER_INPUT') {
+        // High frequency input - do not trigger react state re-renders if possible for performance
+        if (window.updatePlayerVelocity) {
+            window.updatePlayerVelocity(msg.payload.id, msg.payload.vector);
+        }
     } else if (msg.type === 'SUBMIT_ANSWER') {
         const { playerId, answerId, timeLeft: answerTime } = msg.payload;
         
@@ -1052,7 +1457,8 @@ const App = () => {
             const isCorrect = currentQ.answers.find(a => a.shape === answerShape)?.isCorrect || false;
             
             const currentStreak = isCorrect ? player.streak + 1 : 0;
-            const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak) : 0;
+            const maxPoints = currentQ.points || 100; // Default to 100 if not set, as requested
+            const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak, maxPoints) : 0;
 
             broadcast({ 
                 type: 'ANSWER_RESULT', 
@@ -1135,6 +1541,24 @@ const App = () => {
       setGameState(GameState.LEADERBOARD);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
   };
+  
+  const hostStartBonusGame = () => {
+      setGameState(GameState.MINIGAME);
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.MINIGAME, pin } });
+  };
+
+  const hostUpdateBonusScores = (scoreUpdates) => {
+      // scoreUpdates: { playerId: pointsAdded }
+      playSfx(AUDIO.COLLECT);
+      setPlayers(prev => {
+          return prev.map(p => {
+              if (scoreUpdates[p.id]) {
+                  return { ...p, score: Math.max(0, p.score + scoreUpdates[p.id]) };
+              }
+              return p;
+          });
+      });
+  };
 
   const hostNextQuestion = () => {
       if (currentQIndex + 1 >= quiz.questions.length) {
@@ -1148,7 +1572,7 @@ const App = () => {
   };
   
   const handleNextFromHostGame = () => {
-    if (gameState === GameState.ANSWER_REVEAL) {
+    if (gameState === GameState.ANSWER_REVEAL || gameState === GameState.MINIGAME) {
         hostShowLeaderboard();
     } else if (gameState === GameState.LEADERBOARD) {
         hostNextQuestion();
@@ -1257,6 +1681,10 @@ const App = () => {
       setHasAnswered(true);
       if (playerTimerRef.current) clearInterval(playerTimerRef.current);
       broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeftRef.current } }); 
+  };
+  
+  const playerJoystickMove = (vector) => {
+      broadcast({ type: 'PLAYER_INPUT', payload: { id: myPlayerId, vector }});
   };
   
   const resetAllState = () => {
@@ -1423,16 +1851,27 @@ const App = () => {
              ) : gameState === GameState.LOBBY ? (
                  React.createElement(Lobby, { pin: pin, players: players, onStart: hostStartGame, onCancel: handleBackToMenu })
              ) : (
-                 React.createElement(HostGame, { quiz: quiz, players: players, currentQuestionIndex: currentQIndex, timeLeft: timeLeft, gameState: gameState, onNext: handleNextFromHostGame, onEndGame: handleBackToMenu })
+                 React.createElement(HostGame, { 
+                     quiz: quiz, 
+                     players: players, 
+                     currentQuestionIndex: currentQIndex, 
+                     timeLeft: timeLeft, 
+                     gameState: gameState, 
+                     onNext: handleNextFromHostGame, 
+                     onEndGame: handleBackToMenu,
+                     onStartBonusGame: hostStartBonusGame,
+                     onUpdateScores: hostUpdateBonusScores
+                 })
              )
         )
       ) : ( // PLAYER MODE
-        React.createElement('div', null,
+        React.createElement('div', { className: "h-screen w-full overflow-hidden" },
             React.createElement(Background, null),
             shouldShowBackButton() && React.createElement(BackButton, null),
             React.createElement(PlayerView, { 
                 onJoin: playerJoin, 
-                onSubmit: playerSubmit, 
+                onSubmit: playerSubmit,
+                onJoystickMove: playerJoystickMove,
                 gameState: gameState, 
                 hasAnswered: hasAnswered,
                 score: myScore,
