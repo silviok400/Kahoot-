@@ -1240,7 +1240,11 @@ const App = () => {
           const url = new URL(window.location.href);
           if (url.searchParams.get('pin') !== pinToJoin) {
             url.searchParams.set('pin', pinToJoin);
-            window.history.pushState({}, '', url);
+            try {
+                window.history.pushState({}, '', url);
+            } catch (e) {
+                console.warn("Failed to update history:", e);
+            }
           }
       } else {
           console.error("Falha ao entrar no jogo.");
@@ -1271,7 +1275,11 @@ const App = () => {
         bgMusicRef.current.currentTime = 0;
     }
     if (window.location.search) {
-        window.history.pushState({}, document.title, window.location.pathname);
+        try {
+            window.history.pushState({}, document.title, window.location.pathname);
+        } catch (e) {
+            console.warn("Failed to update history:", e);
+        }
     }
   };
 
