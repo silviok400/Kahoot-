@@ -42,10 +42,11 @@ const App: React.FC = () => {
   const [pin, setPin] = useState<string>("");
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentQIndex, setCurrentQIndex] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(0); // Host's timer
   
   // Player specific state (only used if appMode === 'PLAYER')
   const [myPlayerId, setMyPlayerId] = useState<string>("");
+  const [playerTimeLeft, setPlayerTimeLeft] = useState(0); // Player's timer
   const [hasAnswered, setHasAnswered] = useState(false);
   const [myFeedback, setMyFeedback] = useState<{ isCorrect: boolean; points: number; streak: number } | null>(null);
   const [myScore, setMyScore] = useState(0);
@@ -58,7 +59,8 @@ const App: React.FC = () => {
 
   // Comms
   const channelRef = useRef<RealtimeChannel | null>(null);
-  const timerRef = useRef<any>(null);
+  const timerRef = useRef<any>(null); // Host's timer ref
+  const playerTimerRef = useRef<any>(null); // Player's timer ref
 
   // --- INIT & AUDIO ---
   useEffect(() => {
@@ -140,6 +142,7 @@ const App: React.FC = () => {
     return () => {
         supabase.removeChannel(channel);
         if (timerRef.current) clearInterval(timerRef.current);
+        if (playerTimerRef.current) clearInterval(playerTimerRef.current);
     };
   }, [appMode]); // Re-bind if appMode changes (so the handlers use the correct mode)
 
@@ -309,6 +312,9 @@ const App: React.FC = () => {
           if (msg.payload.state === GameState.LOBBY) {
               setMyScore(0);
           }
+          if (msg.payload.state === GameState.LEADERBOARD || msg.payload.state === GameState.PODIUM) {
+              if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+          }
       } 
       else if (msg.type === 'UPDATE_PLAYERS') {
           // IMPORTANT: Update local list of players so we can find ourselves
@@ -330,6 +336,20 @@ const App: React.FC = () => {
               if (msg.payload.isCorrect) playSfx(AUDIO.CORRECT);
               else playSfx(AUDIO.WRONG);
           }
+      }
+      else if (msg.type === 'QUESTION_START') {
+          if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+          
+          let count = msg.payload.timeLimit;
+          setPlayerTimeLeft(count);
+
+          playerTimerRef.current = setInterval(() => {
+              count--;
+              setPlayerTimeLeft(count);
+              if (count <= 0) {
+                  clearInterval(playerTimerRef.current);
+              }
+          }, 1000);
       }
   };
   
@@ -357,7 +377,8 @@ const App: React.FC = () => {
   const playerSubmit = (shape: Shape) => {
       if (hasAnswered) return;
       setHasAnswered(true);
-      broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft } }); 
+      if (playerTimerRef.current) clearInterval(playerTimerRef.current);
+      broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeft } }); 
   };
 
   // --- NAVIGATION LOGIC ---
