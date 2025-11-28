@@ -285,7 +285,7 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz }) => {
       }),
       React.createElement('div', { className: "flex flex-col md:flex-row justify-between items-center p-4 bg-black/20 border-b border-white/10 shrink-0 gap-3" },
         React.createElement('div', { className: "flex items-center gap-4 w-full md:w-auto text-center md:text-left" },
-          React.createElement('h2', { className: "text-xl md:text-3xl font-black text-white" }, "Criar Kahoot!")
+          React.createElement('h2', { className: "text-xl md:text-3xl font-black text-white" }, "Criar S.art quiz")
         ),
         React.createElement('div', { className: "flex items-center gap-2 md:gap-4 w-full md:w-auto justify-end" },
             React.createElement('div', { className: "flex gap-2 ml-auto" },
@@ -528,8 +528,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
                 React.createElement('span', { className: "text-xl md:text-3xl font-bold text-white drop-shadow-md" }, answer.text)
               )
             ))
-          ),
-          React.createElement('div', { className: "absolute bottom-4 left-4 text-white/50 font-bold text-xl" }, "kahoot-clone-2025")
+          )
         );
     }
   };
@@ -567,7 +566,7 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
     return (
       React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen p-4" },
         React.createElement('div', { className: "bg-white text-black p-8 rounded-lg shadow-2xl max-w-sm w-full text-center" },
-            React.createElement('h1', { className: "text-4xl font-black mb-6 text-indigo-900" }, "Kahoot!"),
+            React.createElement('h1', { className: "text-4xl font-black mb-6 text-indigo-900" }, "S.art quiz"),
             React.createElement('form', { onSubmit: handleJoin },
               React.createElement('input', { type: "text", placeholder: "PIN do Jogo", className: "w-full p-3 border-2 border-gray-300 rounded mb-4 text-center font-bold text-xl uppercase text-black placeholder-gray-400", value: pin, onChange: e => setPin(e.target.value) }),
               React.createElement('input', { type: "text", placeholder: "Apelido", className: "w-full p-3 border-2 border-gray-300 rounded mb-6 text-center font-bold text-xl text-black placeholder-gray-400", value: inputName, onChange: e => setInputName(e.target.value) }),
@@ -674,9 +673,8 @@ const calculateScore = (timeLeft, totalTime, streak) => {
 };
 
 const ConnectionBadge = ({ isConnected }) => (
-  React.createElement('div', { className: "fixed top-2 right-2 md:top-4 md:right-4 z-[100] flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 shadow-xl transition-all hover:bg-black/80 cursor-help", title: isConnected ? "Conectado ao servidor" : "Sem conexão com o servidor" },
-    React.createElement('div', { className: `w-2 h-2 md:w-3 md:h-3 rounded-full transition-colors duration-500 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse'}` }),
-    React.createElement('span', { className: "text-[10px] md:text-xs font-bold text-white/90 uppercase tracking-wider" }, isConnected ? 'Online' : 'Offline')
+  React.createElement('div', { className: "fixed top-2 right-2 md:top-4 md:right-4 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md w-8 h-8 md:w-10 md:h-10 rounded-full border border-white/10 shadow-xl transition-all hover:bg-black/80 cursor-help", title: isConnected ? "Conectado ao servidor" : "Sem conexão com o servidor" },
+    React.createElement('div', { className: `w-2 h-2 md:w-3 md:h-3 rounded-full transition-colors duration-500 ${isConnected ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 animate-pulse'}` })
   )
 );
 
@@ -1256,8 +1254,7 @@ const App = () => {
             React.createElement(Background, null),
             React.createElement(ConnectionBadge, { isConnected: isConnected }),
             React.createElement('div', { className: "relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full" },
-                React.createElement('h1', { className: "text-6xl font-black mb-2 tracking-tight" }, "Kahoot!"),
-                React.createElement('p', { className: "text-xl mb-12 opacity-80 font-bold text-purple-200" }, "Experiência Clone 2025"),
+                React.createElement('h1', { className: "text-6xl font-black mb-12 tracking-tight" }, "S.art quiz"),
                 React.createElement('div', { className: "flex flex-col gap-4" },
                     React.createElement('button', { onClick: () => { setQuiz(null); setAppMode('HOST'); setGameState(GameState.CREATE); }, className: "bg-white text-indigo-900 font-black text-xl py-4 rounded shadow-lg hover:scale-105 transition-transform" }, "Criar Jogo"),
                     React.createElement('button', { onClick: () => setAppMode('LOADER'), className: "bg-purple-600 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-purple-500 transition-colors" }, "Carregar Quiz Salvo"),
@@ -1265,10 +1262,6 @@ const App = () => {
                 ),
                 !isConnected && (
                     React.createElement('p', { className: "mt-4 text-xs text-yellow-300 animate-pulse" }, "Conectando ao servidor...")
-                ),
-                React.createElement('p', { className: "mt-8 text-xs text-white/40" },
-                    "Hospede em um dispositivo, entre em outros pela internet.", React.createElement('br'),
-                    "Powered by Supabase Realtime."
                 )
             )
         )

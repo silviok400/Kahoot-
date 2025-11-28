@@ -1,5 +1,5 @@
 {
-  "name": "Kahoot Clone 2025",
-  "description": "A feature-rich quiz platform with manual creation and local multiplayer simulation via BroadcastChannel.",
+  "name": "S.art quiz",
+  "description": "A feature-rich quiz platform for creating and playing live quizzes.",
   "requestFramePermissions": []
 }
