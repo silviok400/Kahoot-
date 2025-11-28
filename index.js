@@ -593,7 +593,7 @@ const VirtualJoystick = ({ onMove }) => {
 
             // Logic Update (Throttled)
             const now = Date.now();
-            if (now - lastSendTime.current > 30) {
+            if (now - lastSendTime.current > 100) { // Changed to 100ms to avoid network rate limiting
                 const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
                 const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
                 onMove({ x: normalizedX, y: normalizedY });
@@ -656,6 +656,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     
     // Refs for physics loop (avoids React state batching issues)
     const positionsRef = useRef({});
+    // NEW: Separate velocities to avoid race condition with animation loop
+    const velocitiesRef = useRef({});
 
     // Dynamic Player Size Calculation
     const playerSizeVw = useMemo(() => {
@@ -668,28 +670,28 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     const startTimeRef = useRef(Date.now());
     const lastItemSpawn = useRef(0);
     
-    // Initialize positions
+    // Initialize positions and velocities
     useEffect(() => {
-        const initialPos = {};
         players.forEach((p, i) => {
-            initialPos[p.id] = { 
-                x: 10 + (Math.random() * 80), // % 
-                y: 10 + (Math.random() * 80), // %
-                vx: 0, 
-                vy: 0,
-                color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
-            };
+             // Init if not present
+             if (!positionsRef.current[p.id]) {
+                positionsRef.current[p.id] = { 
+                    x: 10 + (Math.random() * 80), 
+                    y: 10 + (Math.random() * 80), 
+                    color: ['#ef4444', '#3b82f6', '#eab308', '#22c55e', '#ec4899', '#8b5cf6'][i % 6]
+                };
+             }
+             if (!velocitiesRef.current[p.id]) {
+                 velocitiesRef.current[p.id] = { x: 0, y: 0 };
+             }
         });
-        positionsRef.current = initialPos;
-        setRenderPositions(initialPos);
-    }, []); // Run once on mount
+        setRenderPositions({ ...positionsRef.current });
+    }, [players]);
 
+    // Socket Handler - Updates Velocity Ref only
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
-            if (positionsRef.current[playerId]) {
-                positionsRef.current[playerId].vx = vec.x;
-                positionsRef.current[playerId].vy = vec.y;
-            }
+            velocitiesRef.current[playerId] = vec;
         };
         return () => { window.updatePlayerVelocity = null; };
     }, []);
@@ -730,7 +732,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             lastItemSpawn.current = now;
         }
 
-        // 3. Update Physics & Collision using REF for smoothness
+        // 3. Update Physics & Collision
         const speed = 0.6; // slightly faster speed per frame
         const radius = playerSizeVw / 2; // Radius in VW (approximation)
         
@@ -740,9 +742,11 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         // Move players
         Object.keys(nextPos).forEach(pid => {
             const p = nextPos[pid];
-            if (p.vx !== 0 || p.vy !== 0) {
-                let nx = p.x + (p.vx * speed);
-                let ny = p.y + (p.vy * speed);
+            const v = velocitiesRef.current[pid] || { x: 0, y: 0 }; // Read current input
+
+            if (v.x !== 0 || v.y !== 0) {
+                let nx = p.x + (v.x * speed);
+                let ny = p.y + (v.y * speed);
                 
                 // Boundaries (keep entire ball inside)
                 nx = Math.max(radius, Math.min(100 - radius, nx));
