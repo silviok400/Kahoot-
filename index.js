@@ -1,7 +1,6 @@
-
 // --- IMPORTS ---
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import QRCodeStyling from 'qr-code-styling';
 import { createClient } from "@supabase/supabase-js";
 
@@ -528,50 +527,57 @@ const CustomDropdown = ({ options, value, onChange, label }) => {
 const VirtualJoystick = ({ onMove }) => {
     const joystickRef = useRef(null);
     const knobRef = useRef(null);
-    const [isActive, setIsActive] = useState(false);
     
-    // CURRENT input state (updated immediately by touch)
-    const currentVector = useRef({ x: 0, y: 0 });
-    // LAST SENT state (updated by network loop)
-    const lastSentVector = useRef({ x: 0, y: 0 });
+    // Track state in refs to avoid re-renders interfering with high-freq events
+    const state = useRef({
+        active: false,
+        currentX: 0,
+        currentY: 0,
+        lastSentX: 0,
+        lastSentY: 0
+    });
 
-    // 1. INPUT LOOP (Runs as fast as possible to update UI)
     useEffect(() => {
         const joystick = joystickRef.current;
         if (!joystick) return;
 
+        const updateVisuals = (dx, dy) => {
+            if (knobRef.current) {
+                knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+            }
+        };
+
         const handleStart = (e) => {
             if (e.cancelable) e.preventDefault();
-            setIsActive(true);
-            updateVisualsAndVector(e);
+            state.current.active = true;
+            processMove(e);
         };
 
         const handleMove = (e) => {
-            if (!isActive && !e.type.startsWith('touch')) return;
+            if (!state.current.active) return;
             if (e.cancelable) e.preventDefault();
-            updateVisualsAndVector(e);
+            processMove(e);
         };
 
         const handleEnd = (e) => {
+            if (!state.current.active) return;
             if (e.cancelable) e.preventDefault();
-            setIsActive(false);
             
-            // Reset Vector Logic
-            currentVector.current = { x: 0, y: 0 };
+            state.current.active = false;
+            state.current.currentX = 0;
+            state.current.currentY = 0;
             
-            // Reset Visuals
-            if (knobRef.current) {
-                knobRef.current.style.transform = `translate(0px, 0px)`;
-            }
+            updateVisuals(0, 0);
             
-            // Force immediate send to stop player
-            if (lastSentVector.current.x !== 0 || lastSentVector.current.y !== 0) {
-                onMove({ x: 0, y: 0 });
-                lastSentVector.current = { x: 0, y: 0 };
-            }
+            // IMMEDIATE STOP SEND
+            // We force send (0,0) immediately to ensure the player stops.
+            // We bypass the interval loop for this critical event.
+            onMove({ x: 0, y: 0 });
+            state.current.lastSentX = 0;
+            state.current.lastSentY = 0;
         };
 
-        const updateVisualsAndVector = (e) => {
+        const processMove = (e) => {
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
@@ -584,62 +590,56 @@ const VirtualJoystick = ({ onMove }) => {
             let dy = clientY - centerY;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Clamp to circle
             if (distance > maxRadius) {
                 const angle = Math.atan2(dy, dx);
                 dx = Math.cos(angle) * maxRadius;
                 dy = Math.sin(angle) * maxRadius;
             }
 
-            // Visual Update (Direct DOM manipulation)
-            if (knobRef.current) {
-                knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
-            }
+            updateVisuals(dx, dy);
 
-            // Update Current Vector Ref
-            const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
-            const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
-            currentVector.current = { x: normalizedX, y: normalizedY };
+            // Update logic state
+            state.current.currentX = parseFloat((dx / maxRadius).toFixed(2));
+            state.current.currentY = parseFloat((dy / maxRadius).toFixed(2));
         };
 
         joystick.addEventListener('touchstart', handleStart, { passive: false });
         joystick.addEventListener('mousedown', handleStart);
-        
-        const handleWindowMove = (e) => { if (isActive) handleMove(e); };
-        const handleWindowEnd = (e) => { if (isActive) handleEnd(e); };
-
-        window.addEventListener('touchmove', handleWindowMove, { passive: false });
-        window.addEventListener('touchend', handleWindowEnd);
-        window.addEventListener('mousemove', handleWindowMove);
-        window.addEventListener('mouseup', handleWindowEnd);
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('touchend', handleEnd);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
 
         return () => {
             joystick.removeEventListener('touchstart', handleStart);
             joystick.removeEventListener('mousedown', handleStart);
-            window.removeEventListener('touchmove', handleWindowMove);
-            window.removeEventListener('touchend', handleWindowEnd);
-            window.removeEventListener('mousemove', handleWindowMove);
-            window.removeEventListener('mouseup', handleWindowEnd);
+            window.removeEventListener('touchmove', handleMove);
+            window.removeEventListener('touchend', handleEnd);
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleEnd);
         };
-    }, [isActive]); // Re-bind on active state change
+    }, [onMove]);
 
-    // 2. NETWORK LOOP (Runs at fixed interval to send data)
+    // Network Loop
     useEffect(() => {
-        // 50ms interval = 20 updates per second (Smooth enough, low bandwidth)
-        const intervalId = setInterval(() => {
-            const curr = currentVector.current;
-            const last = lastSentVector.current;
+        const interval = setInterval(() => {
+            if (!state.current.active) return;
 
-            // Only send if different (with small epsilon for float drift)
-            if (Math.abs(curr.x - last.x) > 0.05 || Math.abs(curr.y - last.y) > 0.05) {
-                onMove(curr);
-                lastSentVector.current = curr;
-            } 
-            // Also send if active and we haven't sent in a while (keep-alive roughly) 
-            // but the above check is usually enough for movement.
-        }, 50);
+            const { currentX, currentY, lastSentX, lastSentY } = state.current;
 
-        return () => clearInterval(intervalId);
+            // Simple diff check
+            const diff = Math.abs(currentX - lastSentX) + Math.abs(currentY - lastSentY);
+
+            // Send only if changed significantly (0.05 threshold) to prevent flooding.
+            // This 100ms throttle + threshold prevents the "queue lag" effect.
+            if (diff > 0.05) {
+                onMove({ x: currentX, y: currentY });
+                state.current.lastSentX = currentX;
+                state.current.lastSentY = currentY;
+            }
+        }, 100); // 100ms throttle = 10 updates/sec
+
+        return () => clearInterval(interval);
     }, [onMove]);
 
     return (
@@ -2287,8 +2287,6 @@ const App = () => {
   const myNickname = myPlayer ? myPlayer.nickname : "";
   const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
 
-  console.log("Rendering App...");
-
   return (
     React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
       // Notification Modal
@@ -2379,5 +2377,5 @@ const App = () => {
 };
 
 // --- RENDER APP ---
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const root = createRoot(document.getElementById('root'));
 root.render(React.createElement(App));
