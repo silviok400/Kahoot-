@@ -156,6 +156,207 @@ const deleteGameSessionByPin = async (pin) => {
     }
 };
 
+// --- AVATAR SYSTEM ---
+const AVATAR_OPTIONS = {
+    skin: ['#f8d9ce', '#f3cfb3', '#eac086', '#d2a061', '#a56c42', '#7b4b2a', '#5c3a2a'],
+    hair: ['#2c1b18', '#4a312c', '#7d5640', '#b58b5a', '#e6c888', '#9b1b1b', '#3b82f6', '#ec4899', '#eeeeee'],
+    clothing: ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#8b5cf6', '#ec4899', '#1f2937', '#ffffff'],
+};
+
+const Avatar = ({ config, size = "100%" }) => {
+    const { skinColor, hairColor, clothingColor, hairStyle, clothingStyle, accessory, hat } = config || {
+        skinColor: AVATAR_OPTIONS.skin[2],
+        hairColor: AVATAR_OPTIONS.hair[1],
+        clothingColor: AVATAR_OPTIONS.clothing[1],
+        hairStyle: 0,
+        clothingStyle: 0,
+        accessory: 0,
+        hat: 0
+    };
+
+    return (
+        React.createElement('svg', { viewBox: "0 0 100 100", width: size, height: size, className: "rounded-full bg-blue-100/50 shadow-inner" },
+            // Shoulders / Body
+            React.createElement('path', { d: "M20 90 Q50 90 80 90 L80 100 L20 100 Z", fill: clothingColor }),
+            React.createElement('path', { d: "M20 90 Q20 70 35 65 L65 65 Q80 70 80 90", fill: clothingColor }),
+            clothingStyle === 1 && React.createElement('path', { d: "M40 65 L50 80 L60 65", fill: "rgba(0,0,0,0.1)" }), // V-neck
+            clothingStyle === 2 && React.createElement('rect', { x: "48", y: "65", width: "4", height: "35", fill: "rgba(255,255,255,0.3)" }), // Zipper/Line
+
+            // Neck
+            React.createElement('rect', { x: "42", y: "55", width: "16", height: "15", fill: skinColor }),
+            
+            // Head
+            React.createElement('circle', { cx: "50", cy: "45", r: "22", fill: skinColor }),
+
+            // Mouth
+            React.createElement('path', { d: "M45 55 Q50 58 55 55", fill: "none", stroke: "#5c3a2a", strokeWidth: "2", strokeLinecap: "round" }),
+
+            // Eyes
+            React.createElement('circle', { cx: "42", cy: "42", r: "2.5", fill: "#333" }),
+            React.createElement('circle', { cx: "58", cy: "42", r: "2.5", fill: "#333" }),
+            
+            // Hair Back
+            (hairStyle === 1) && React.createElement('circle', { cx: "50", cy: "45", r: "24", fill: hairColor, clipPath: "inset(0 0 50% 0)" }),
+
+            // Hair Top
+            (hairStyle === 0) && React.createElement('path', { d: "M30 40 Q50 15 70 40", fill: hairColor }), // Bald/Short
+            (hairStyle === 1) && React.createElement('path', { d: "M25 45 Q50 10 75 45 Q75 60 70 65 L30 65 Q25 60 25 45", fill: hairColor }), // Bob
+            (hairStyle === 2) && React.createElement('path', { d: "M28 40 Q50 5 72 40 L72 35 Q50 0 28 35 Z", fill: hairColor }), // Spiky
+            (hairStyle === 3) && React.createElement('path', { d: "M26 42 Q50 15 74 42 Q78 50 74 60 L26 60 Q22 50 26 42", fill: hairColor }), // Curly
+
+            // Accessories
+            (accessory === 1) && React.createElement('g', null, // Glasses
+                React.createElement('circle', { cx: "42", cy: "42", r: "5", fill: "none", stroke: "black", strokeWidth: "1" }),
+                React.createElement('circle', { cx: "58", cy: "42", r: "5", fill: "none", stroke: "black", strokeWidth: "1" }),
+                React.createElement('line', { x1: "47", y1: "42", x2: "53", y2: "42", stroke: "black", strokeWidth: "1" })
+            ),
+            (accessory === 2) && React.createElement('rect', { x: "35", y: "40", width: "30", height: "6", fill: "black", rx: "1" }), // Sunglasses
+
+            // Hat
+            (hat === 1) && React.createElement('path', { d: "M25 35 Q50 20 75 35 L75 30 Q50 15 25 30 Z", fill: "#333" }), // Cap
+            (hat === 2) && React.createElement('path', { d: "M28 35 L72 35 L65 15 L35 15 Z", fill: "#3b82f6" }) // Beanie
+        )
+    );
+};
+
+const AvatarEditor = ({ initialConfig, onSave }) => {
+    const [config, setConfig] = useState(initialConfig || {
+        skinColor: AVATAR_OPTIONS.skin[2],
+        hairColor: AVATAR_OPTIONS.hair[1],
+        clothingColor: AVATAR_OPTIONS.clothing[1],
+        hairStyle: 0,
+        clothingStyle: 0,
+        accessory: 0,
+        hat: 0
+    });
+    
+    const [activeTab, setActiveTab] = useState('skin'); // skin, hair, cloth, extra
+
+    const tabs = [
+        { id: 'skin', label: 'Cor', icon: '🎨' },
+        { id: 'hair', label: 'Cabelo', icon: '💇' },
+        { id: 'cloth', label: 'Roupa', icon: '👕' },
+        { id: 'extra', label: 'Acessório', icon: '👓' }
+    ];
+
+    const update = (key, val) => setConfig(prev => ({ ...prev, [key]: val }));
+
+    return React.createElement('div', { className: "bg-white text-black p-4 rounded-xl shadow-2xl w-full max-w-sm flex flex-col items-center animate-zoom-in" },
+        React.createElement('h2', { className: "text-2xl font-black mb-4 text-indigo-900" }, "Personalize"),
+        
+        // Preview
+        React.createElement('div', { className: "w-40 h-40 mb-6 border-4 border-indigo-100 rounded-full" },
+            React.createElement(Avatar, { config: config })
+        ),
+
+        // Tabs
+        React.createElement('div', { className: "flex gap-2 mb-4 w-full justify-center bg-gray-100 p-1 rounded-lg" },
+            tabs.map(t => (
+                React.createElement('button', {
+                    key: t.id,
+                    onClick: () => setActiveTab(t.id),
+                    className: `flex-1 py-2 rounded-md font-bold text-sm transition-all ${activeTab === t.id ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`
+                }, React.createElement('span', { className: "text-lg" }, t.icon))
+            ))
+        ),
+
+        // Controls
+        React.createElement('div', { className: "w-full h-40 overflow-y-auto mb-6 p-1" },
+            activeTab === 'skin' && (
+                React.createElement('div', { className: "grid grid-cols-5 gap-2" },
+                    AVATAR_OPTIONS.skin.map(c => (
+                        React.createElement('button', { 
+                            key: c, 
+                            onClick: () => update('skinColor', c),
+                            className: `w-10 h-10 rounded-full border-2 ${config.skinColor === c ? 'border-indigo-600 scale-110' : 'border-transparent'}` ,
+                            style: { backgroundColor: c }
+                        })
+                    ))
+                )
+            ),
+            activeTab === 'hair' && (
+                React.createElement('div', { className: "flex flex-col gap-4" },
+                    React.createElement('div', { className: "grid grid-cols-4 gap-2" },
+                       [0, 1, 2, 3].map(s => (
+                           React.createElement('button', {
+                               key: s,
+                               onClick: () => update('hairStyle', s),
+                               className: `p-2 rounded border-2 font-bold ${config.hairStyle === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
+                           }, `Estilo ${s + 1}`)
+                       ))
+                    ),
+                    React.createElement('div', { className: "grid grid-cols-5 gap-2" },
+                        AVATAR_OPTIONS.hair.map(c => (
+                            React.createElement('button', { 
+                                key: c, 
+                                onClick: () => update('hairColor', c),
+                                className: `w-10 h-10 rounded-full border-2 ${config.hairColor === c ? 'border-indigo-600 scale-110' : 'border-transparent'}` ,
+                                style: { backgroundColor: c }
+                            })
+                        ))
+                    )
+                )
+            ),
+            activeTab === 'cloth' && (
+                React.createElement('div', { className: "flex flex-col gap-4" },
+                    React.createElement('div', { className: "grid grid-cols-3 gap-2" },
+                       [0, 1, 2].map(s => (
+                           React.createElement('button', {
+                               key: s,
+                               onClick: () => update('clothingStyle', s),
+                               className: `p-2 rounded border-2 font-bold ${config.clothingStyle === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
+                           }, `Estilo ${s + 1}`)
+                       ))
+                    ),
+                     React.createElement('div', { className: "grid grid-cols-5 gap-2" },
+                        AVATAR_OPTIONS.clothing.map(c => (
+                            React.createElement('button', { 
+                                key: c, 
+                                onClick: () => update('clothingColor', c),
+                                className: `w-10 h-10 rounded-full border-2 ${config.clothingColor === c ? 'border-indigo-600 scale-110' : 'border-transparent'}` ,
+                                style: { backgroundColor: c }
+                            })
+                        ))
+                    )
+                )
+            ),
+            activeTab === 'extra' && (
+                React.createElement('div', { className: "flex flex-col gap-4" },
+                     React.createElement('div', { className: "space-y-2" },
+                        React.createElement('p', { className: "text-xs font-bold uppercase text-gray-500" }, "Óculos"),
+                        React.createElement('div', { className: "grid grid-cols-3 gap-2" },
+                           [0, 1, 2].map(s => (
+                               React.createElement('button', {
+                                   key: s,
+                                   onClick: () => update('accessory', s),
+                                   className: `p-2 rounded border-2 font-bold ${config.accessory === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
+                               }, s === 0 ? 'Nenhum' : `Opção ${s}`)
+                           ))
+                        )
+                    ),
+                    React.createElement('div', { className: "space-y-2" },
+                        React.createElement('p', { className: "text-xs font-bold uppercase text-gray-500" }, "Chapéu"),
+                        React.createElement('div', { className: "grid grid-cols-3 gap-2" },
+                           [0, 1, 2].map(s => (
+                               React.createElement('button', {
+                                   key: s,
+                                   onClick: () => update('hat', s),
+                                   className: `p-2 rounded border-2 font-bold ${config.hat === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
+                               }, s === 0 ? 'Nenhum' : `Opção ${s}`)
+                           ))
+                        )
+                    )
+                )
+            )
+        ),
+
+        React.createElement('button', { 
+            onClick: () => onSave(config), 
+            className: "w-full bg-black text-white py-3 rounded-lg font-black text-xl hover:bg-gray-800 transition-transform hover:scale-105 shadow-lg" 
+        }, "Pronto!")
+    );
+};
+
 // --- From components/Shared/Background.tsx ---
 const Background = () => {
   return (
@@ -363,12 +564,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     const [playerPositions, setPlayerPositions] = useState({});
     
     // Dynamic Player Size Calculation
-    // Fewer players = Larger size. More players = Smaller size.
-    // Minimum size 1.5vw, Maximum 6vw.
     const playerSizeVw = useMemo(() => {
         const count = Math.max(players.length, 1);
-        // Logic: Start at 6vw. As count goes up, size goes down.
-        // Approx: 1 player -> 6vw, 10 players -> ~4vw, 50 players -> ~1.5vw
         return Math.max(1.5, Math.min(6, 40 / Math.sqrt(count)));
     }, [players.length]);
 
@@ -396,7 +593,6 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         setPlayerPositions(initialPos);
     }, []); // Run once on mount
 
-    // Helper to expose position update to parent (App)
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
             setPlayerPositions(prev => {
@@ -459,8 +655,6 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 let ny = p.y + (p.vy * speed);
                 
                 // Boundaries (keep entire ball inside)
-                // If ball is at 0%, left edge is at -radius. We want left edge at 0.
-                // So center must be at radius.
                 nx = Math.max(radius, Math.min(100 - radius, nx));
                 ny = Math.max(radius, Math.min(100 - radius, ny));
                 
@@ -478,14 +672,10 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                         if (collected) return;
                         const p = nextPos[pid];
                         
-                        // Simple AABB/Circle approximation collision
-                        // Since positions are %, we approximate distance. 
-                        // Assuming 16/9 aspect ratio roughly.
                         const dx = (p.x - item.x);
                         const dy = (p.y - item.y) * (16/9); 
                         const dist = Math.sqrt(dx*dx + dy*dy);
                         
-                        // Collision threshold (player radius + item radius approximation)
                         if (dist < (radius + item.size/2)) { 
                             collected = true;
                             if (!scoresToUpdate[pid]) scoresToUpdate[pid] = 0;
@@ -494,13 +684,11 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                     });
 
                     if (!collected) {
-                        // Despawn old items to keep performance
                         if (now - item.id > 10000) return; // 10s lifetime
                         survivingItems.push(item);
                     }
                 });
 
-                // Batch update scores
                 if (Object.keys(scoresToUpdate).length > 0) {
                     onUpdateScores(scoresToUpdate);
                 }
@@ -578,7 +766,11 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                             fontSize: `${playerSizeVw * 0.4}vw`
                         }
                     },
-                         playerInfo ? playerInfo.nickname.substring(0,2).toUpperCase() : '??'
+                         playerInfo?.avatar ? (
+                             React.createElement(Avatar, { config: playerInfo.avatar, size: '100%' })
+                         ) : (
+                             playerInfo ? playerInfo.nickname.substring(0,2).toUpperCase() : '??'
+                         )
                     ),
                     React.createElement('span', { className: "mt-1 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-sm whitespace-nowrap" }, playerInfo?.nickname)
                 );
@@ -881,7 +1073,7 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
             React.createElement('div', { className: "bg-black/40 text-white px-4 py-2 md:px-6 md:py-2 rounded-full font-bold backdrop-blur-md border border-white/10 text-sm md:text-base" }, `👤 ${players.length} Jogador${players.length !== 1 ? 'es' : ''}`),
             React.createElement('button', { onClick: onCancel, className: "bg-red-500/20 hover:bg-red-500/40 text-red-200 hover:text-white px-3 py-1.5 md:px-4 md:py-2 rounded font-bold transition-colors text-xs md:text-sm" }, "Cancelar Jogo")
         ),
-        React.createElement('div', { className: "flex flex-wrap gap-3 md:gap-4 justify-center content-start pb-20" },
+        React.createElement('div', { className: "flex flex-wrap gap-4 justify-center content-start pb-20" },
             players.length === 0 && (
                 React.createElement('div', { className: "mt-10 md:mt-20 flex flex-col items-center animate-pulse opacity-60 text-center" },
                     React.createElement('div', { className: "text-5xl md:text-6xl mb-4" }, "⏳"),
@@ -890,7 +1082,12 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
                 )
             ),
             players.map((p) => (
-                React.createElement('div', { key: p.id, className: "bg-white text-black font-black text-lg md:text-xl px-4 py-2 md:px-6 md:py-3 rounded-lg shadow-lg animate-[bounce_0.5s_ease-out] border-b-4 border-gray-300 min-w-[100px] md:min-w-[120px] text-center" }, p.nickname)
+                React.createElement('div', { key: p.id, className: "bg-white text-black font-black text-lg md:text-xl p-3 rounded-lg shadow-lg animate-[bounce_0.5s_ease-out] border-b-4 border-gray-300 min-w-[100px] md:min-w-[120px] text-center flex flex-col items-center gap-2" },
+                    p.avatar ? (
+                        React.createElement(Avatar, { config: p.avatar, size: 60 })
+                    ) : null,
+                    React.createElement('span', null, p.nickname)
+                )
             ))
         )
       ),
@@ -972,6 +1169,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
                 React.createElement('div', { key: p.id, className: "flex items-center justify-between bg-white/10 backdrop-blur rounded-lg p-4 animate-slide-in-from-right", style: { animationDelay: `${idx * 0.1}s` } },
                   React.createElement('div', { className: "flex items-center gap-4" },
                     React.createElement('span', { className: "font-black text-2xl w-8" }, idx + 1),
+                    p.avatar && React.createElement('div', { className: "w-10 h-10" }, React.createElement(Avatar, { config: p.avatar })),
                     React.createElement('span', { className: "font-bold text-xl" }, p.nickname),
                     p.streak > 2 && React.createElement('span', { className: "bg-orange-500 text-xs font-bold px-2 py-1 rounded-full" }, `🔥 ${p.streak}`)
                   ),
@@ -1035,41 +1233,60 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
 
 // --- From components/Player/PlayerView.tsx ---
 const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, score, place, nickname, feedback, showNotification }) => {
+  const [step, setStep] = useState('LOGIN'); // LOGIN, AVATAR, LOBBY
   const [inputName, setInputName] = useState("");
   const [pin, setPin] = useState("");
   const [joined, setJoined] = useState(false);
+  const [avatarConfig, setAvatarConfig] = useState(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const pinParam = urlParams.get('pin');
     if (pinParam) setPin(pinParam);
-    if (nickname) setJoined(true);
+    if (nickname) {
+        setJoined(true);
+        setStep('LOBBY');
+    }
   }, [nickname]);
 
-  const handleJoin = (e) => {
+  const handleLoginSubmit = (e) => {
     e.preventDefault();
     if (inputName.trim() && pin) {
-      onJoin(inputName, pin);
+        setStep('AVATAR');
     } else {
         showNotification("Por favor, preencha o PIN e o Apelido.", 'error');
     }
   };
+
+  const handleAvatarSave = (config) => {
+      setAvatarConfig(config);
+      // Join game
+      onJoin(inputName, pin, config);
+  };
   
   const getOrdinal = (n) => "º";
 
-  if (!joined) {
+  if (step === 'LOGIN' && !joined) {
     return (
       React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen p-4" },
         React.createElement('div', { className: "bg-white text-black p-8 rounded-lg shadow-2xl max-w-sm w-full text-center" },
             React.createElement('h1', { className: "text-4xl font-black mb-6 text-indigo-900" }, "S.art quiz"),
-            React.createElement('form', { onSubmit: handleJoin },
+            React.createElement('form', { onSubmit: handleLoginSubmit },
               React.createElement('input', { type: "text", placeholder: "PIN do Jogo", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-4 text-center font-bold text-xl text-white placeholder-gray-400", value: pin, onChange: e => setPin(e.target.value) }),
               React.createElement('input', { type: "text", placeholder: "Apelido", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-6 text-center font-bold text-xl text-white placeholder-gray-400", value: inputName, onChange: e => setInputName(e.target.value) }),
-              React.createElement('button', { type: "submit", className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors" }, "Entrar")
+              React.createElement('button', { type: "submit", className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors" }, "Próximo")
             )
         )
       )
     );
+  }
+
+  if (step === 'AVATAR' && !joined) {
+      return (
+          React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen p-4" },
+              React.createElement(AvatarEditor, { onSave: handleAvatarSave })
+          )
+      );
   }
 
   // --- BONUS GAME VIEW ---
@@ -1111,8 +1328,9 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
       return (
         React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8" },
             React.createElement('h2', { className: "text-3xl font-bold mb-4" }, "Você entrou!"),
-            React.createElement('p', { className: "text-xl" }, "Veja seu apelido na tela?"),
-            React.createElement('div', { className: "mt-8 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse" }, nickname)
+            avatarConfig && React.createElement('div', { className: "w-32 h-32 mb-4 mx-auto" }, React.createElement(Avatar, { config: avatarConfig })),
+            React.createElement('p', { className: "text-xl" }, "Veja seu nome na tela?"),
+            React.createElement('div', { className: "mt-4 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse" }, nickname)
         )
       )
   }
@@ -1158,7 +1376,7 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
   // Default / Leaderboard Screen (White Card)
   return (
     React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8" },
-        React.createElement('div', { className: "bg-white text-black p-6 rounded-xl shadow-xl w-full max-w-sm" },
+        React.createElement('div', { className: "bg-white text-black p-6 rounded-xl shadow-xl w-full max-w-sm flex flex-col items-center" },
             React.createElement('p', { className: "text-gray-500 font-bold uppercase text-sm mb-2" }, "Pontuação Total"),
             React.createElement('h2', { className: "text-5xl font-black mb-4" }, score),
             
@@ -1177,9 +1395,12 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
                  )
             ),
 
-            React.createElement('div', { className: "bg-black text-white py-3 rounded-lg font-bold text-xl mb-2" }, place > 0 ? `${place}º Lugar` : '-')
+            React.createElement('div', { className: "bg-black text-white py-3 px-6 rounded-lg font-bold text-xl mb-2 w-full" }, place > 0 ? `${place}º Lugar` : '-')
         ),
-        React.createElement('p', { className: "mt-8 text-white/70 font-bold" }, nickname)
+        React.createElement('div', { className: "mt-8 flex flex-col items-center" },
+            avatarConfig && React.createElement('div', { className: "w-20 h-20 mb-2" }, React.createElement(Avatar, { config: avatarConfig })),
+            React.createElement('p', { className: "text-white/70 font-bold text-xl" }, nickname)
+        )
     )
   );
 };
@@ -1388,6 +1609,24 @@ const App = () => {
   const gameStateRef = useRef(gameState);
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
+  // HELPER: Parse nickname for avatar data
+  const parsePlayer = (p) => {
+      // Format: "Nickname|||JSONString"
+      if (!p.nickname.includes('|||')) return p;
+      try {
+          const parts = p.nickname.split('|||');
+          const realNickname = parts[0];
+          const avatar = JSON.parse(parts[1]);
+          return { ...p, nickname: realNickname, avatar };
+      } catch (e) {
+          return p;
+      }
+  };
+
+  const sanitizePlayerList = (list) => {
+      return list.map(parsePlayer);
+  };
+
   useEffect(() => {
     bgMusicRef.current = new Audio(AUDIO.LOBBY_MUSIC);
     bgMusicRef.current.loop = true;
@@ -1475,6 +1714,12 @@ const App = () => {
 
   useEffect(() => {
     if (appMode === 'HOST' && players.length > 0) {
+        // We broadcast RAW players (with JSON in nickname if present) to persist in other clients, 
+        // but locally we display sanitized.
+        // Wait, 'players' state in this component should probably hold SANITIZED data for display,
+        // but when we sync, we might lose the avatar if we stripped it?
+        // Let's store SANITIZED in state, but when we JOIN, we kept the avatar property.
+        // broadcast sends what is in state.
         broadcast({ type: 'UPDATE_PLAYERS', payload: players });
     }
   }, [players, appMode]);
@@ -1498,8 +1743,31 @@ const App = () => {
     if (msg.type === 'JOIN') {
         setPlayers(prev => {
             if (prev.find(p => p.id === msg.payload.id)) return prev;
-            playSfx(AUDIO.CORRECT); 
-            return [...prev, { id: msg.payload.id, nickname: msg.payload.nickname, score: 0, streak: 0, lastAnswerShape: null }];
+            playSfx(AUDIO.CORRECT);
+            
+            // Parse incoming join data
+            const rawNick = msg.payload.nickname;
+            let realNick = rawNick;
+            let avatar = null;
+            if (rawNick.includes('|||')) {
+                try {
+                    const parts = rawNick.split('|||');
+                    realNick = parts[0];
+                    avatar = JSON.parse(parts[1]);
+                } catch(e) {}
+            }
+            
+            // Or use the helper if we pass the whole object
+            const parsedObj = parsePlayer(msg.payload);
+
+            return [...prev, { 
+                id: parsedObj.id, 
+                nickname: parsedObj.nickname, 
+                avatar: parsedObj.avatar,
+                score: 0, 
+                streak: 0, 
+                lastAnswerShape: null 
+            }];
         });
     } else if (msg.type === 'LEAVE') {
         setPlayers(prev => prev.filter(p => p.id !== msg.payload.playerId));
@@ -1680,7 +1948,7 @@ const App = () => {
           }
       } 
       else if (msg.type === 'UPDATE_PLAYERS') {
-          setPlayers(msg.payload);
+          setPlayers(sanitizePlayerList(msg.payload));
           const me = msg.payload.find(p => p.id === myPlayerIdRef.current);
           if (me) {
               setMyScore(me.score);
@@ -1721,18 +1989,26 @@ const App = () => {
     }
   };
   
-  const playerJoin = async (nickname, pinToJoin) => {
+  const playerJoin = async (nickname, pinToJoin, avatarConfig) => {
       if (!pinToJoin) {
           showNotification("Por favor, insira um PIN para entrar no jogo.", 'error');
           return;
       }
       
-      const newPlayer = await registerPlayer(pinToJoin, nickname);
+      // Persist avatar by appending it to the nickname string before sending to DB
+      const encodedNickname = avatarConfig 
+        ? `${nickname}|||${JSON.stringify(avatarConfig)}`
+        : nickname;
+      
+      const newPlayer = await registerPlayer(pinToJoin, encodedNickname);
       
       if (newPlayer) {
           setMyPlayerId(newPlayer.id);
           localStorage.setItem('kahoot-player-id', newPlayer.id);
-          broadcast({ type: 'JOIN', payload: { nickname: newPlayer.nickname, id: newPlayer.id } });
+          
+          // Broadcast raw encoded name so other clients parse it
+          broadcast({ type: 'JOIN', payload: { nickname: encodedNickname, id: newPlayer.id } });
+          
           setGameState(GameState.LOBBY);
           const url = new URL(window.location.href);
           if (url.searchParams.get('pin') !== pinToJoin) {
