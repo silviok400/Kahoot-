@@ -62,6 +62,20 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     },
 });
 
+const checkGameByPin = async (pin) => {
+    if (!pin) return false;
+    const { data, error } = await supabase
+        .from('games')
+        .select('id')
+        .eq('pin', pin)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+    
+    if (error || !data) return false;
+    return true;
+};
+
 const createGameSession = async (pin, quizTitle) => {
     const { data, error } = await supabase
         .from('games')
@@ -103,6 +117,16 @@ const registerPlayer = async (pin, nickname) => {
     }
 
     return newPlayer;
+};
+
+const updatePlayerNickname = async (playerId, newNickname) => {
+    if (!playerId) return;
+    const { error } = await supabase
+        .from('players')
+        .update({ nickname: newNickname })
+        .eq('id', playerId);
+    
+    if (error) console.error("Erro ao atualizar jogador:", error);
 };
 
 const deletePlayer = async (playerId) => {
@@ -158,9 +182,17 @@ const deleteGameSessionByPin = async (pin) => {
 
 // --- AVATAR SYSTEM ---
 const AVATAR_OPTIONS = {
-    skin: ['#f8d9ce', '#f3cfb3', '#eac086', '#d2a061', '#a56c42', '#7b4b2a', '#5c3a2a'],
-    hair: ['#2c1b18', '#4a312c', '#7d5640', '#b58b5a', '#e6c888', '#9b1b1b', '#3b82f6', '#ec4899', '#eeeeee'],
-    clothing: ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#8b5cf6', '#ec4899', '#1f2937', '#ffffff'],
+    skin: ['#f8d9ce', '#f3cfb3', '#eac086', '#d2a061', '#a56c42', '#7b4b2a', '#5c3a2a', '#3c2e28'],
+    hair: ['#2c1b18', '#4a312c', '#7d5640', '#b58b5a', '#e6c888', '#f0f0f0', '#9b1b1b', '#3b82f6', '#ec4899', '#8b5cf6', '#22c55e', '#1f2937'],
+    clothing: ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#8b5cf6', '#ec4899', '#1f2937', '#ffffff', '#000000', '#f97316', '#06b6d4'],
+};
+
+// Available counts for customization options
+const AVATAR_COUNTS = {
+    hairStyle: 12,
+    clothingStyle: 10,
+    accessory: 10,
+    hat: 11
 };
 
 const Avatar = ({ config, size = "100%" }) => {
@@ -174,52 +206,184 @@ const Avatar = ({ config, size = "100%" }) => {
         hat: 0
     };
 
+    const stroke = "rgba(0,0,0,0.1)"; 
+    const detail = "rgba(255,255,255,0.2)";
+
     return (
-        React.createElement('svg', { viewBox: "0 0 100 100", width: size, height: size, className: "rounded-full bg-blue-100/50 shadow-inner" },
-            // Shoulders / Body
-            React.createElement('path', { d: "M20 90 Q50 90 80 90 L80 100 L20 100 Z", fill: clothingColor }),
-            React.createElement('path', { d: "M20 90 Q20 70 35 65 L65 65 Q80 70 80 90", fill: clothingColor }),
-            clothingStyle === 1 && React.createElement('path', { d: "M40 65 L50 80 L60 65", fill: "rgba(0,0,0,0.1)" }), // V-neck
-            clothingStyle === 2 && React.createElement('rect', { x: "48", y: "65", width: "4", height: "35", fill: "rgba(255,255,255,0.3)" }), // Zipper/Line
+        React.createElement('svg', { viewBox: "0 0 100 100", width: size, height: size, className: "rounded-full bg-blue-100/50 shadow-inner overflow-hidden" },
+            // --- CLOTHING (Body) ---
+            React.createElement('g', null,
+                // Base Body Shape
+                React.createElement('path', { d: "M20 90 Q50 90 80 90 L80 100 L20 100 Z", fill: clothingColor }),
+                React.createElement('path', { d: "M20 90 Q20 70 35 65 L65 65 Q80 70 80 90", fill: clothingColor }),
+                
+                // Clothing Details based on Style
+                clothingStyle === 1 && React.createElement('path', { d: "M40 65 L50 80 L60 65", fill: "rgba(0,0,0,0.15)" }), // V-neck
+                clothingStyle === 2 && React.createElement('g', null, // Hoodie
+                    React.createElement('path', { d: "M35 65 Q50 85 65 65", fill: "none", stroke: "rgba(0,0,0,0.2)", strokeWidth: "2" }),
+                    React.createElement('line', { x1: "50", y1: "65", x2: "50", y2: "100", stroke: "rgba(0,0,0,0.2)", strokeWidth: "1" })
+                ),
+                clothingStyle === 3 && React.createElement('g', null, // Suit
+                    React.createElement('path', { d: "M35 65 L50 90 L65 65", fill: "white" }),
+                    React.createElement('path', { d: "M48 65 L50 85 L52 65", fill: "#c0392b" }) // Tie
+                ),
+                clothingStyle === 4 && React.createElement('path', { d: "M30 65 Q50 90 70 65", fill: "none", stroke: detail, strokeWidth: "3", strokeDasharray: "4 2" }), // Necklace/Dress
+                clothingStyle === 5 && React.createElement('rect', { x: "30", y: "65", width: "40", height: "35", fill: "rgba(0,0,0,0.1)", clipPath: "inset(0 25% 0 25%)" }), // Tank top
+                clothingStyle === 6 && React.createElement('g', null, // Stripes
+                    React.createElement('path', { d: "M25 75 H75", stroke: detail, strokeWidth: "2" }),
+                    React.createElement('path', { d: "M22 85 H78", stroke: detail, strokeWidth: "2" })
+                ),
+                clothingStyle === 7 && React.createElement('g', null, // Overalls
+                    React.createElement('rect', { x: "38", y: "65", width: "4", height: "35", fill: "#3b82f6" }),
+                    React.createElement('rect', { x: "58", y: "65", width: "4", height: "35", fill: "#3b82f6" }),
+                    React.createElement('rect', { x: "35", y: "80", width: "30", height: "20", fill: "#3b82f6" })
+                ),
+                clothingStyle === 8 && React.createElement('path', { d: "M20 70 Q50 60 80 70", fill: "none", stroke: detail, strokeWidth: "10", strokeOpacity: "0.2" }), // Sweater
+                clothingStyle === 9 && React.createElement('g', null, // Button up
+                    React.createElement('line', { x1: "50", y1: "65", x2: "50", y2: "100", stroke: "rgba(0,0,0,0.1)", strokeWidth: "1" }),
+                    React.createElement('circle', { cx: "53", cy: "75", r: "1", fill: "rgba(0,0,0,0.3)" }),
+                    React.createElement('circle', { cx: "53", cy: "85", r: "1", fill: "rgba(0,0,0,0.3)" })
+                )
+            ),
 
             // Neck
             React.createElement('rect', { x: "42", y: "55", width: "16", height: "15", fill: skinColor }),
-            
+            React.createElement('path', { d: "M42 55 L42 65 Q50 70 58 65 L58 55 Z", fill: "rgba(0,0,0,0.05)" }),
+
             // Head
             React.createElement('circle', { cx: "50", cy: "45", r: "22", fill: skinColor }),
-
+            
+            // Facial Features
             // Mouth
-            React.createElement('path', { d: "M45 55 Q50 58 55 55", fill: "none", stroke: "#5c3a2a", strokeWidth: "2", strokeLinecap: "round" }),
+            React.createElement('path', { d: "M45 55 Q50 58 55 55", fill: "none", stroke: "#5c3a2a", strokeWidth: "1.5", strokeLinecap: "round" }),
+            // Nose
+            React.createElement('path', { d: "M50 48 Q48 50 50 52", fill: "none", stroke: "#c58c65", strokeWidth: "1", opacity: "0.5" }),
 
             // Eyes
             React.createElement('circle', { cx: "42", cy: "42", r: "2.5", fill: "#333" }),
             React.createElement('circle', { cx: "58", cy: "42", r: "2.5", fill: "#333" }),
-            
-            // Hair Back
-            (hairStyle === 1) && React.createElement('circle', { cx: "50", cy: "45", r: "24", fill: hairColor, clipPath: "inset(0 0 50% 0)" }),
+            // Blush
+            React.createElement('circle', { cx: "38", cy: "50", r: "3", fill: "#ff0000", opacity: "0.05" }),
+            React.createElement('circle', { cx: "62", cy: "50", r: "3", fill: "#ff0000", opacity: "0.05" }),
 
-            // Hair Top
-            (hairStyle === 0) && React.createElement('path', { d: "M30 40 Q50 15 70 40", fill: hairColor }), // Bald/Short
-            (hairStyle === 1) && React.createElement('path', { d: "M25 45 Q50 10 75 45 Q75 60 70 65 L30 65 Q25 60 25 45", fill: hairColor }), // Bob
-            (hairStyle === 2) && React.createElement('path', { d: "M28 40 Q50 5 72 40 L72 35 Q50 0 28 35 Z", fill: hairColor }), // Spiky
-            (hairStyle === 3) && React.createElement('path', { d: "M26 42 Q50 15 74 42 Q78 50 74 60 L26 60 Q22 50 26 42", fill: hairColor }), // Curly
+            // --- HAIR (Back layer) ---
+            [1, 4, 5, 6, 7, 8, 9].includes(hairStyle) && React.createElement('g', null,
+                hairStyle === 1 && React.createElement('circle', { cx: "50", cy: "45", r: "24", fill: hairColor, clipPath: "inset(0 0 40% 0)" }), // Bob
+                hairStyle === 4 && React.createElement('path', { d: "M26 40 L26 80 L74 80 L74 40", fill: hairColor }), // Long Straight
+                hairStyle === 5 && React.createElement('circle', { cx: "65", cy: "50", r: "10", fill: hairColor }), // Ponytail side
+                hairStyle === 6 && React.createElement('rect', { x: "46", y: "15", width: "8", height: "40", fill: hairColor }), // Mohawk strip
+                hairStyle === 7 && React.createElement('circle', { cx: "50", cy: "45", r: "28", fill: hairColor }), // Afro
+                hairStyle === 8 && React.createElement('g', null, // Buns
+                    React.createElement('circle', { cx: "25", cy: "40", r: "8", fill: hairColor }),
+                    React.createElement('circle', { cx: "75", cy: "40", r: "8", fill: hairColor })
+                ),
+                hairStyle === 9 && React.createElement('path', { d: "M26 40 Q20 60 26 80 L74 80 Q80 60 74 40", fill: hairColor }) // Wavy
+            ),
 
-            // Accessories
-            (accessory === 1) && React.createElement('g', null, // Glasses
+            // --- HAIR (Front/Top) ---
+            React.createElement('g', null,
+                hairStyle === 0 && React.createElement('path', { d: "M30 40 Q50 15 70 40", fill: hairColor }), // Short
+                hairStyle === 1 && React.createElement('path', { d: "M28 45 Q50 10 72 45 Q72 55 70 60 L30 60 Q28 55 28 45", fill: hairColor }), // Bob Front
+                hairStyle === 2 && React.createElement('path', { d: "M28 40 Q50 5 72 40 L72 35 Q50 0 28 35 Z", fill: hairColor }), // Spiky
+                hairStyle === 3 && React.createElement('path', { d: "M26 42 Q50 15 74 42 Q78 50 74 60 L26 60 Q22 50 26 42", fill: hairColor }), // Curly
+                hairStyle === 4 && React.createElement('path', { d: "M30 40 Q50 15 70 40", fill: hairColor }), // Long Straight Top
+                hairStyle === 5 && React.createElement('path', { d: "M30 40 Q50 15 70 40", fill: hairColor }), // Ponytail Top
+                hairStyle === 6 && React.createElement('path', { d: "M45 20 L55 20 L52 45 L48 45 Z", fill: hairColor }), // Mohawk top
+                hairStyle === 7 && React.createElement('path', { d: "M25 40 Q50 10 75 40", fill: hairColor, opacity: "0.8" }), // Afro texture
+                hairStyle === 8 && React.createElement('path', { d: "M30 40 Q50 20 70 40", fill: hairColor }), // Buns top
+                hairStyle === 9 && React.createElement('path', { d: "M30 40 Q50 20 70 40", fill: hairColor }), // Wavy top
+                hairStyle === 10 && React.createElement('path', { d: "M28 42 Q60 20 72 50 L72 40 Q50 10 28 40 Z", fill: hairColor }), // Side part
+                hairStyle === 11 && React.createElement('path', { d: "M30 35 Q50 35 70 35 L70 45 Q50 50 30 45 Z", fill: hairColor }) // Flat top
+            ),
+
+            // --- ACCESSORIES ---
+            accessory === 1 && React.createElement('g', null, // Round Glasses
                 React.createElement('circle', { cx: "42", cy: "42", r: "5", fill: "none", stroke: "black", strokeWidth: "1" }),
                 React.createElement('circle', { cx: "58", cy: "42", r: "5", fill: "none", stroke: "black", strokeWidth: "1" }),
                 React.createElement('line', { x1: "47", y1: "42", x2: "53", y2: "42", stroke: "black", strokeWidth: "1" })
             ),
-            (accessory === 2) && React.createElement('rect', { x: "35", y: "40", width: "30", height: "6", fill: "black", rx: "1" }), // Sunglasses
+            accessory === 2 && React.createElement('g', null, // Sunglasses
+                React.createElement('rect', { x: "35", y: "40", width: "12", height: "6", fill: "black", rx: "1" }),
+                React.createElement('rect', { x: "53", y: "40", width: "12", height: "6", fill: "black", rx: "1" }),
+                React.createElement('line', { x1: "47", y1: "42", x2: "53", y2: "42", stroke: "black", strokeWidth: "1" })
+            ),
+            accessory === 3 && React.createElement('g', null, // Cat Eye
+                React.createElement('path', { d: "M35 43 Q35 38 45 43 Q40 46 35 43", fill: "none", stroke: "black", strokeWidth: "1.5" }),
+                React.createElement('path', { d: "M65 43 Q65 38 55 43 Q60 46 65 43", fill: "none", stroke: "black", strokeWidth: "1.5" }),
+                React.createElement('line', { x1: "45", y1: "43", x2: "55", y2: "43", stroke: "black", strokeWidth: "1" })
+            ),
+            accessory === 4 && React.createElement('g', null, // Aviators
+                React.createElement('path', { d: "M35 40 Q42 38 48 40 L48 45 Q42 48 35 45 Z", fill: "rgba(0,0,0,0.5)", stroke: "gold", strokeWidth: "1" }),
+                React.createElement('path', { d: "M52 40 Q58 38 65 40 L65 45 Q58 48 52 45 Z", fill: "rgba(0,0,0,0.5)", stroke: "gold", strokeWidth: "1" }),
+                React.createElement('line', { x1: "48", y1: "41", x2: "52", y2: "41", stroke: "gold", strokeWidth: "1" })
+            ),
+            accessory === 5 && React.createElement('g', null, // 3D Glasses
+                React.createElement('rect', { x: "36", y: "40", width: "12", height: "6", fill: "rgba(255,0,0,0.3)", stroke: "white", strokeWidth: "1" }),
+                React.createElement('rect', { x: "52", y: "40", width: "12", height: "6", fill: "rgba(0,0,255,0.3)", stroke: "white", strokeWidth: "1" })
+            ),
+            accessory === 6 && React.createElement('g', null, // Monocle
+                React.createElement('circle', { cx: "58", cy: "42", r: "5", fill: "rgba(200,240,255,0.3)", stroke: "gold", strokeWidth: "1" }),
+                React.createElement('line', { x1: "58", y1: "47", x2: "58", y2: "60", stroke: "gold", strokeWidth: "0.5" })
+            ),
+            accessory === 7 && React.createElement('g', null, // Eye Patch
+                React.createElement('path', { d: "M35 38 L65 46", stroke: "black", strokeWidth: "1" }), 
+                React.createElement('circle', { cx: "42", cy: "42", r: "6", fill: "black" }) 
+            ),
+            accessory === 8 && React.createElement('g', null, // Star Glasses
+                 React.createElement('path', { d: "M36 42 l2 -6 l2 6 l6 0 l-4 4 l2 6 l-6 -4 l-6 4 l2 -6 l-4 -4 z", fill: "yellow", stroke: "orange", transform: "scale(0.8) translate(10, 10)" }),
+                 React.createElement('path', { d: "M36 42 l2 -6 l2 6 l6 0 l-4 4 l2 6 l-6 -4 l-6 4 l2 -6 l-4 -4 z", fill: "yellow", stroke: "orange", transform: "scale(0.8) translate(35, 10)" })
+            ),
+            accessory === 9 && React.createElement('g', null, // Heart Glasses
+                React.createElement('path', { d: "M35 42 Q38 36 41 42 Q44 36 47 42 L41 48 Z", fill: "pink", stroke: "red" }),
+                React.createElement('path', { d: "M53 42 Q56 36 59 42 Q62 36 65 42 L59 48 Z", fill: "pink", stroke: "red" })
+            ),
 
-            // Hat
-            (hat === 1) && React.createElement('path', { d: "M25 35 Q50 20 75 35 L75 30 Q50 15 25 30 Z", fill: "#333" }), // Cap
-            (hat === 2) && React.createElement('path', { d: "M28 35 L72 35 L65 15 L35 15 Z", fill: "#3b82f6" }) // Beanie
+            // --- HATS ---
+            hat === 1 && React.createElement('g', null, // Cap
+                React.createElement('path', { d: "M25 35 Q50 20 75 35 L75 30 Q50 15 25 30 Z", fill: "#333" }),
+                React.createElement('path', { d: "M25 35 L75 35", stroke: "#333", strokeWidth: "2" })
+            ),
+            hat === 2 && React.createElement('g', null, // Beanie
+                React.createElement('path', { d: "M28 35 L72 35 L65 15 L35 15 Z", fill: "#3b82f6" }),
+                React.createElement('circle', { cx: "50", cy: "15", r: "4", fill: "#3b82f6" })
+            ),
+            hat === 3 && React.createElement('g', null, // Top Hat
+                React.createElement('rect', { x: "35", y: "15", width: "30", height: "25", fill: "#111" }),
+                React.createElement('rect', { x: "25", y: "38", width: "50", height: "4", fill: "#111" }),
+                React.createElement('rect', { x: "35", y: "33", width: "30", height: "5", fill: "#c0392b" })
+            ),
+            hat === 4 && React.createElement('g', null, // Cowboy Hat
+                React.createElement('path', { d: "M20 35 Q50 45 80 35 L80 30 Q50 10 20 30 Z", fill: "#8d6e63" }),
+                React.createElement('path', { d: "M35 30 L65 30 L60 10 L40 10 Z", fill: "#6d4c41" })
+            ),
+            hat === 5 && React.createElement('path', { d: "M30 35 L30 15 L40 25 L50 15 L60 25 L70 15 L70 35 Z", fill: "gold", stroke: "orange" }), // Crown
+            hat === 6 && React.createElement('g', null, // Headphones
+                React.createElement('path', { d: "M25 45 Q25 15 75 45", fill: "none", stroke: "#333", strokeWidth: "4" }),
+                React.createElement('rect', { x: "20", y: "40", width: "8", height: "12", rx: "2", fill: "#555" }),
+                React.createElement('rect', { x: "72", y: "40", width: "8", height: "12", rx: "2", fill: "#555" })
+            ),
+            hat === 7 && React.createElement('g', null, // Flower Crown
+                React.createElement('circle', { cx: "30", cy: "35", r: "4", fill: "pink" }),
+                React.createElement('circle', { cx: "40", cy: "33", r: "4", fill: "yellow" }),
+                React.createElement('circle', { cx: "50", cy: "32", r: "5", fill: "white" }),
+                React.createElement('circle', { cx: "60", cy: "33", r: "4", fill: "yellow" }),
+                React.createElement('circle', { cx: "70", cy: "35", r: "4", fill: "pink" })
+            ),
+            hat === 8 && React.createElement('g', null, // Viking
+                React.createElement('path', { d: "M30 35 Q50 20 70 35", fill: "#999" }),
+                React.createElement('path', { d: "M30 35 L20 20", stroke: "#ddd", strokeWidth: "3" }),
+                React.createElement('path', { d: "M70 35 L80 20", stroke: "#ddd", strokeWidth: "3" })
+            ),
+            hat === 9 && React.createElement('path', { d: "M30 35 L30 15 Q40 5 50 15 Q60 5 70 15 L70 35 Z", fill: "white", stroke: "#ddd" }), // Chef
+            hat === 10 && React.createElement('g', null, // Party Hat
+                React.createElement('polygon', { points: "35,35 50,10 65,35", fill: "cyan" }),
+                React.createElement('circle', { cx: "50", cy: "10", r: "3", fill: "orange" })
+            )
         )
     );
 };
 
-const AvatarEditor = ({ initialConfig, onSave }) => {
+const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
     const [config, setConfig] = useState(initialConfig || {
         skinColor: AVATAR_OPTIONS.skin[2],
         hairColor: AVATAR_OPTIONS.hair[1],
@@ -230,121 +394,78 @@ const AvatarEditor = ({ initialConfig, onSave }) => {
         hat: 0
     });
     
-    const [activeTab, setActiveTab] = useState('skin'); // skin, hair, cloth, extra
-
-    const tabs = [
-        { id: 'skin', label: 'Cor', icon: '🎨' },
-        { id: 'hair', label: 'Cabelo', icon: '💇' },
-        { id: 'cloth', label: 'Roupa', icon: '👕' },
-        { id: 'extra', label: 'Acessório', icon: '👓' }
-    ];
-
     const update = (key, val) => setConfig(prev => ({ ...prev, [key]: val }));
 
-    return React.createElement('div', { className: "bg-white text-black p-4 rounded-xl shadow-2xl w-full max-w-sm flex flex-col items-center animate-zoom-in" },
-        React.createElement('h2', { className: "text-2xl font-black mb-4 text-indigo-900" }, "Personalize"),
+    const categories = [
+        { id: 'skin', label: 'Pele', type: 'color', options: AVATAR_OPTIONS.skin, key: 'skinColor' },
+        { id: 'hair', label: 'Cabelo', type: 'style+color', count: AVATAR_COUNTS.hairStyle, colors: AVATAR_OPTIONS.hair, styleKey: 'hairStyle', colorKey: 'hairColor' },
+        { id: 'clothing', label: 'Roupa', type: 'style+color', count: AVATAR_COUNTS.clothingStyle, colors: AVATAR_OPTIONS.clothing, styleKey: 'clothingStyle', colorKey: 'clothingColor' },
+        { id: 'accessory', label: 'Óculos', type: 'style', count: AVATAR_COUNTS.accessory, styleKey: 'accessory' },
+        { id: 'hat', label: 'Chapéu', type: 'style', count: AVATAR_COUNTS.hat, styleKey: 'hat' }
+    ];
+
+    const [activeCategory, setActiveCategory] = useState(categories[0]);
+
+    return React.createElement('div', { className: "bg-white text-black p-4 md:p-6 rounded-2xl shadow-2xl w-full max-w-md flex flex-col items-center animate-zoom-in max-h-[90vh]" },
+        React.createElement('h2', { className: "text-2xl font-black mb-4 text-indigo-900" }, mode === 'edit' ? "Editar Avatar" : "Personalize"),
         
         // Preview
-        React.createElement('div', { className: "w-40 h-40 mb-6 border-4 border-indigo-100 rounded-full" },
+        React.createElement('div', { className: "w-48 h-48 mb-6 border-8 border-indigo-100 rounded-full bg-white shadow-lg shrink-0" },
             React.createElement(Avatar, { config: config })
         ),
 
-        // Tabs
-        React.createElement('div', { className: "flex gap-2 mb-4 w-full justify-center bg-gray-100 p-1 rounded-lg" },
-            tabs.map(t => (
-                React.createElement('button', {
-                    key: t.id,
-                    onClick: () => setActiveTab(t.id),
-                    className: `flex-1 py-2 rounded-md font-bold text-sm transition-all ${activeTab === t.id ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`
-                }, React.createElement('span', { className: "text-lg" }, t.icon))
-            ))
+        // Category Menu (Horizontal Scroll)
+        React.createElement('div', { className: "w-full overflow-x-auto pb-2 mb-4 scrollbar-hide" },
+            React.createElement('div', { className: "flex gap-2 min-w-min px-1" },
+                categories.map(cat => (
+                    React.createElement('button', {
+                        key: cat.id,
+                        onClick: () => setActiveCategory(cat),
+                        className: `px-4 py-2 rounded-full font-bold text-sm whitespace-nowrap transition-all ${activeCategory.id === cat.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`
+                    }, cat.label)
+                ))
+            )
         ),
 
-        // Controls
-        React.createElement('div', { className: "w-full h-40 overflow-y-auto mb-6 p-1" },
-            activeTab === 'skin' && (
-                React.createElement('div', { className: "grid grid-cols-5 gap-2" },
-                    AVATAR_OPTIONS.skin.map(c => (
-                        React.createElement('button', { 
-                            key: c, 
-                            onClick: () => update('skinColor', c),
-                            className: `w-10 h-10 rounded-full border-2 ${config.skinColor === c ? 'border-indigo-600 scale-110' : 'border-transparent'}` ,
-                            style: { backgroundColor: c }
-                        })
-                    ))
-                )
-            ),
-            activeTab === 'hair' && (
-                React.createElement('div', { className: "flex flex-col gap-4" },
-                    React.createElement('div', { className: "grid grid-cols-4 gap-2" },
-                       [0, 1, 2, 3].map(s => (
-                           React.createElement('button', {
-                               key: s,
-                               onClick: () => update('hairStyle', s),
-                               className: `p-2 rounded border-2 font-bold ${config.hairStyle === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
-                           }, `Estilo ${s + 1}`)
-                       ))
-                    ),
-                    React.createElement('div', { className: "grid grid-cols-5 gap-2" },
-                        AVATAR_OPTIONS.hair.map(c => (
+        // Controls Area
+        React.createElement('div', { className: "w-full flex-1 overflow-y-auto min-h-[200px] p-1 custom-scrollbar" },
+            
+            // Render Color Options if applicable
+            (activeCategory.type === 'color' || activeCategory.type === 'style+color') && (
+                React.createElement('div', { className: "mb-6" },
+                    React.createElement('p', { className: "text-xs font-bold text-gray-400 uppercase mb-2" }, "Cores"),
+                    React.createElement('div', { className: "flex flex-wrap gap-3" },
+                        (activeCategory.colors || activeCategory.options).map(c => (
                             React.createElement('button', { 
                                 key: c, 
-                                onClick: () => update('hairColor', c),
-                                className: `w-10 h-10 rounded-full border-2 ${config.hairColor === c ? 'border-indigo-600 scale-110' : 'border-transparent'}` ,
+                                onClick: () => update(activeCategory.colorKey || activeCategory.key, c),
+                                className: `w-10 h-10 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${config[activeCategory.colorKey || activeCategory.key] === c ? 'border-indigo-600 scale-110 ring-2 ring-indigo-200' : 'border-white'}`,
                                 style: { backgroundColor: c }
                             })
                         ))
                     )
                 )
             ),
-            activeTab === 'cloth' && (
-                React.createElement('div', { className: "flex flex-col gap-4" },
-                    React.createElement('div', { className: "grid grid-cols-3 gap-2" },
-                       [0, 1, 2].map(s => (
-                           React.createElement('button', {
-                               key: s,
-                               onClick: () => update('clothingStyle', s),
-                               className: `p-2 rounded border-2 font-bold ${config.clothingStyle === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
-                           }, `Estilo ${s + 1}`)
-                       ))
-                    ),
-                     React.createElement('div', { className: "grid grid-cols-5 gap-2" },
-                        AVATAR_OPTIONS.clothing.map(c => (
-                            React.createElement('button', { 
-                                key: c, 
-                                onClick: () => update('clothingColor', c),
-                                className: `w-10 h-10 rounded-full border-2 ${config.clothingColor === c ? 'border-indigo-600 scale-110' : 'border-transparent'}` ,
-                                style: { backgroundColor: c }
-                            })
+
+            // Render Style Options if applicable
+            (activeCategory.type === 'style' || activeCategory.type === 'style+color') && (
+                React.createElement('div', null,
+                    React.createElement('p', { className: "text-xs font-bold text-gray-400 uppercase mb-2" }, "Estilos"),
+                    React.createElement('div', { className: "grid grid-cols-3 sm:grid-cols-4 gap-3" },
+                        Array.from({ length: activeCategory.count }).map((_, i) => ( 
+                            React.createElement('button', {
+                                key: i,
+                                onClick: () => update(activeCategory.styleKey, i),
+                                className: `aspect-square rounded-xl border-2 flex flex-col items-center justify-center bg-gray-50 hover:bg-white transition-all ${config[activeCategory.styleKey] === i ? 'border-indigo-600 bg-indigo-50 shadow-md ring-2 ring-indigo-100' : 'border-gray-200 hover:border-gray-300'}`
+                            },
+                                React.createElement('div', { className: "w-full h-full p-1" },
+                                     React.createElement(Avatar, { 
+                                         config: { ...config, [activeCategory.styleKey]: i },
+                                         size: "100%"
+                                     })
+                                )
+                            )
                         ))
-                    )
-                )
-            ),
-            activeTab === 'extra' && (
-                React.createElement('div', { className: "flex flex-col gap-4" },
-                     React.createElement('div', { className: "space-y-2" },
-                        React.createElement('p', { className: "text-xs font-bold uppercase text-gray-500" }, "Óculos"),
-                        React.createElement('div', { className: "grid grid-cols-3 gap-2" },
-                           [0, 1, 2].map(s => (
-                               React.createElement('button', {
-                                   key: s,
-                                   onClick: () => update('accessory', s),
-                                   className: `p-2 rounded border-2 font-bold ${config.accessory === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
-                               }, s === 0 ? 'Nenhum' : `Opção ${s}`)
-                           ))
-                        )
-                    ),
-                    React.createElement('div', { className: "space-y-2" },
-                        React.createElement('p', { className: "text-xs font-bold uppercase text-gray-500" }, "Chapéu"),
-                        React.createElement('div', { className: "grid grid-cols-3 gap-2" },
-                           [0, 1, 2].map(s => (
-                               React.createElement('button', {
-                                   key: s,
-                                   onClick: () => update('hat', s),
-                                   className: `p-2 rounded border-2 font-bold ${config.hat === s ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'}`
-                               }, s === 0 ? 'Nenhum' : `Opção ${s}`)
-                           ))
-                        )
                     )
                 )
             )
@@ -352,8 +473,8 @@ const AvatarEditor = ({ initialConfig, onSave }) => {
 
         React.createElement('button', { 
             onClick: () => onSave(config), 
-            className: "w-full bg-black text-white py-3 rounded-lg font-black text-xl hover:bg-gray-800 transition-transform hover:scale-105 shadow-lg" 
-        }, "Pronto!")
+            className: "w-full mt-4 bg-black text-white py-4 rounded-xl font-black text-xl hover:bg-gray-800 transition-transform hover:scale-[1.02] shadow-xl" 
+        }, mode === 'edit' ? "Salvar Alterações" : "Pronto!")
     );
 };
 
@@ -361,11 +482,13 @@ const AvatarEditor = ({ initialConfig, onSave }) => {
 const Background = () => {
   return (
     React.createElement('div', { className: "fixed inset-0 overflow-hidden pointer-events-none z-0" },
-      React.createElement('div', { className: "absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-purple-800" }),
+      React.createElement('div', { className: "absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-purple-800" },
+        React.createElement('div', { className: "absolute inset-0 bg-black/20" })
+      ),
       [...Array(10)].map((_, i) => (
         React.createElement('div', {
           key: i,
-          className: "shape-bg bg-white/10 rounded-lg absolute",
+          className: "shape-bg bg-white/5 rounded-lg absolute backdrop-blur-sm",
           style: {
             width: `${Math.random() * 100 + 50}px`,
             height: `${Math.random() * 100 + 50}px`,
@@ -434,11 +557,11 @@ const CustomDropdown = ({ options, value, onChange, label }) => {
 
 // --- Joystick Component for Bonus Game ---
 const VirtualJoystick = ({ onMove }) => {
+    // ... (Same as before)
     const joystickRef = useRef(null);
     const knobRef = useRef(null);
     const [isActive, setIsActive] = useState(false);
     const lastSendTime = useRef(0);
-    const animationFrameId = useRef(null);
     
     // We use refs for position to avoid React render cycles slowing down the drag
     const position = useRef({ x: 0, y: 0 });
@@ -456,7 +579,6 @@ const VirtualJoystick = ({ onMove }) => {
 
         const handleMove = (e) => {
             if (!isActive && !e.type.startsWith('touch')) return; // For mouse, only move if active
-            // For touch, if we are here, it's active because we bound the listener
             if (e.cancelable) e.preventDefault();
             updatePosition(e);
         };
@@ -495,7 +617,7 @@ const VirtualJoystick = ({ onMove }) => {
                 dy = Math.sin(angle) * maxRadius;
             }
 
-            // Visual Update (Direct DOM manipulation for performance)
+            // Visual Update
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
             }
@@ -514,13 +636,8 @@ const VirtualJoystick = ({ onMove }) => {
         joystick.addEventListener('touchstart', handleStart, { passive: false });
         joystick.addEventListener('mousedown', handleStart);
         
-        // Window listeners for move/end to capture dragging outside element
-        const handleWindowMove = (e) => {
-            if (isActive) handleMove(e);
-        };
-        const handleWindowEnd = (e) => {
-            if (isActive) handleEnd(e);
-        };
+        const handleWindowMove = (e) => { if (isActive) handleMove(e); };
+        const handleWindowEnd = (e) => { if (isActive) handleEnd(e); };
 
         window.addEventListener('touchmove', handleWindowMove, { passive: false });
         window.addEventListener('touchend', handleWindowEnd);
@@ -535,7 +652,7 @@ const VirtualJoystick = ({ onMove }) => {
             window.removeEventListener('mousemove', handleWindowMove);
             window.removeEventListener('mouseup', handleWindowEnd);
         };
-    }, [isActive, onMove]); // Re-bind if isActive changes (simple state machine)
+    }, [isActive, onMove]);
 
     return (
         React.createElement('div', { 
@@ -559,6 +676,7 @@ const VirtualJoystick = ({ onMove }) => {
 
 // --- Bonus Game Host Component ---
 const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
+    // ... (Same as before)
     const [timeLeft, setTimeLeft] = useState(30);
     const [gameItems, setGameItems] = useState([]);
     const [playerPositions, setPlayerPositions] = useState({});
@@ -591,7 +709,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             };
         });
         setPlayerPositions(initialPos);
-    }, []); // Run once on mount
+    }, []);
 
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
@@ -608,9 +726,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
 
     const animate = () => {
         const now = Date.now();
-        const deltaTime = (now - startTimeRef.current) / 1000; // seconds
+        const deltaTime = (now - startTimeRef.current) / 1000;
         
-        // 1. Update Timer
         if (Math.floor(deltaTime) > (30 - timeLeft)) {
             setTimeLeft(prev => {
                 if (prev <= 1) {
@@ -621,12 +738,11 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             });
         }
 
-        // 2. Spawn Items (Balls: 70%, Coins: 20%, Bombs: 10%)
-        if (now - lastItemSpawn.current > 800) { // Every 800ms
+        if (now - lastItemSpawn.current > 800) { 
             const typeRoll = Math.random();
             let type = 'ball';
             let value = 50;
-            let size = 4; // vw
+            let size = 4;
 
             if (typeRoll > 0.9) { type = 'bomb'; value = -100; size = 5; }
             else if (typeRoll > 0.7) { type = 'coin'; value = 200; size = 4; }
@@ -642,26 +758,22 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             lastItemSpawn.current = now;
         }
 
-        // 3. Update Physics & Collision
         setPlayerPositions(prevPos => {
             const nextPos = { ...prevPos };
-            const speed = 0.6; // slightly faster speed per frame
-            const radius = playerSizeVw / 2; // Radius in VW (approximation)
+            const speed = 0.6;
+            const radius = playerSizeVw / 2;
             
-            // Move players
             Object.keys(nextPos).forEach(pid => {
                 const p = nextPos[pid];
                 let nx = p.x + (p.vx * speed);
                 let ny = p.y + (p.vy * speed);
                 
-                // Boundaries (keep entire ball inside)
                 nx = Math.max(radius, Math.min(100 - radius, nx));
                 ny = Math.max(radius, Math.min(100 - radius, ny));
                 
                 nextPos[pid] = { ...p, x: nx, y: ny };
             });
 
-            // Check Collisions
             setGameItems(prevItems => {
                 const survivingItems = [];
                 const scoresToUpdate = {};
@@ -684,7 +796,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                     });
 
                     if (!collected) {
-                        if (now - item.id > 10000) return; // 10s lifetime
+                        if (now - item.id > 10000) return; 
                         survivingItems.push(item);
                     }
                 });
@@ -711,19 +823,16 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
 
     return (
         React.createElement('div', { className: "relative w-full h-full bg-slate-900 overflow-hidden select-none" },
-            // HUD
             React.createElement('div', { className: "absolute top-4 left-0 w-full flex justify-center z-50 pointer-events-none" },
                 React.createElement('div', { className: "bg-white/20 backdrop-blur-md px-8 py-2 rounded-full border border-white/30 shadow-2xl" },
                     React.createElement('span', { className: "text-4xl font-black text-white drop-shadow-md" }, `Tempo: ${timeLeft}s`)
                 )
             ),
             
-            // Grid Lines for effect
             React.createElement('div', { className: "absolute inset-0 opacity-20", 
                 style: { backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '50px 50px' } 
             }),
 
-            // Items
             gameItems.map(item => (
                 React.createElement('div', { 
                     key: item.id,
@@ -748,7 +857,6 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 )
             )),
 
-            // Players
             Object.keys(playerPositions).map(pid => {
                 const p = playerPositions[pid];
                 const playerInfo = players.find(pl => pl.id === pid);
@@ -779,8 +887,10 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     );
 };
 
+// ... (Rest of QuizCreator, Lobby, HostGame remain similar but included in full file if needed, keeping them as is)
 // --- From components/Host/QuizCreator.tsx ---
 const SaveQuizModal = ({ quizTitle, onSave, onCancel, onError }) => {
+    // ... (Same)
     const [name, setName] = useState(quizTitle);
     const [password, setPassword] = useState('');
 
@@ -826,6 +936,7 @@ const SaveQuizModal = ({ quizTitle, onSave, onCancel, onError }) => {
 
 
 const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotification }) => {
+  // ... (Same content, omitted for brevity, logic unchanged)
   const [title, setTitle] = useState(initialQuiz?.title || "Meu Quiz Incrível");
   const [questions, setQuestions] = useState(initialQuiz?.questions || []);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -873,18 +984,9 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
         reader.readAsDataURL(file);
     }
   };
-
-  const handleDragOver = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-  };
-
-  const handleDrop = (e, qIndex) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const file = e.dataTransfer.files[0];
-      handleFileSelect(qIndex, file);
-  };
+  
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const handleDrop = (e, qIndex) => { e.preventDefault(); e.stopPropagation(); const file = e.dataTransfer.files[0]; handleFileSelect(qIndex, file); };
 
   const timeOptions = [
     { value: 5, label: "5 segundos" },
@@ -1013,13 +1115,12 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
 
 // --- From components/Host/Lobby.tsx ---
 const QRCodeView = ({ url, size }) => {
+    // ... (Same)
     const ref = useRef(null);
 
     useEffect(() => {
         if (!ref.current) return;
-
-        ref.current.innerHTML = ''; // Clear previous QR code
-
+        ref.current.innerHTML = '';
         const qrCode = new QRCodeStyling({
             width: size,
             height: size,
@@ -1030,7 +1131,6 @@ const QRCodeView = ({ url, size }) => {
             backgroundOptions: { color: "#ffffff" },
             imageOptions: { crossOrigin: "anonymous", margin: 10 }
         });
-        
         qrCode.append(ref.current);
     }, [url, size]);
 
@@ -1100,6 +1200,7 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
 
 // --- From components/Host/HostGame.tsx ---
 const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext, onEndGame, onStartBonusGame, onUpdateScores }) => {
+  // ... (Same, omitted for brevity)
   const question = quiz.questions[currentQuestionIndex];
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
@@ -1120,7 +1221,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
           return React.createElement(BonusGameHost, { 
               players: players,
               onUpdateScores: onUpdateScores,
-              onEndGame: onNext // When time up, go to Leaderboard (or next state)
+              onEndGame: onNext 
           });
 
       case GameState.ANSWER_REVEAL:
@@ -1190,16 +1291,13 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
         
         return React.createElement('div', { key: `question-${currentQuestionIndex}`, className: "animate-fade-in flex flex-col h-full p-4 w-full" },
           React.createElement('div', { className: "flex justify-end items-center mb-4 gap-4" },
-            // Question Counter
             React.createElement('div', { className: "bg-white/90 backdrop-blur text-indigo-900 font-black px-6 py-2 rounded-full text-xl shadow-lg border-2 border-indigo-900/10" }, 
                 `Questão ${currentQuestionIndex + 1} / ${quiz.questions.length}`
             ),
-            // Answers Counter
             React.createElement('div', { className: "bg-indigo-600 text-white font-bold px-6 py-2 rounded-full text-xl shadow-lg border-2 border-white/20 flex items-center gap-2" },
                 React.createElement('span', { className: "text-2xl" }, "📥"),
                 React.createElement('span', null, `Respostas: ${answeredCount}`)
             ),
-            // Timer
             React.createElement('div', { className: "w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center border-4 border-white shadow-xl relative z-10" },
               React.createElement('span', { className: "text-4xl font-black" }, timeLeft)
             )
@@ -1232,12 +1330,13 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
 };
 
 // --- From components/Player/PlayerView.tsx ---
-const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, score, place, nickname, feedback, showNotification }) => {
+const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameState, hasAnswered, score, place, nickname, feedback, showNotification, currentAvatar }) => {
   const [step, setStep] = useState('LOGIN'); // LOGIN, AVATAR, LOBBY
+  const [isEditingAvatar, setIsEditingAvatar] = useState(false);
   const [inputName, setInputName] = useState("");
   const [pin, setPin] = useState("");
+  const [isCheckingPin, setIsCheckingPin] = useState(false);
   const [joined, setJoined] = useState(false);
-  const [avatarConfig, setAvatarConfig] = useState(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -1249,19 +1348,34 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
     }
   }, [nickname]);
 
-  const handleLoginSubmit = (e) => {
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    if (inputName.trim() && pin) {
+    if (!inputName.trim() || !pin) {
+        showNotification("Por favor, preencha o PIN e o Apelido.", 'error');
+        return;
+    }
+    
+    setIsCheckingPin(true);
+    const exists = await checkGameByPin(pin);
+    setIsCheckingPin(false);
+    
+    if (exists) {
         setStep('AVATAR');
     } else {
-        showNotification("Por favor, preencha o PIN e o Apelido.", 'error');
+        showNotification("PIN inválido. Nenhuma sala encontrada.", 'error');
     }
   };
 
   const handleAvatarSave = (config) => {
-      setAvatarConfig(config);
-      // Join game
-      onJoin(inputName, pin, config);
+      if (joined && isEditingAvatar) {
+          // Re-edit inside lobby
+          onUpdateAvatar(config);
+          setIsEditingAvatar(false);
+      } else {
+          // Initial join
+          onJoin(inputName, pin, config);
+          setStep('LOBBY'); // Optimistic update
+      }
   };
   
   const getOrdinal = (n) => "º";
@@ -1274,17 +1388,28 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
             React.createElement('form', { onSubmit: handleLoginSubmit },
               React.createElement('input', { type: "text", placeholder: "PIN do Jogo", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-4 text-center font-bold text-xl text-white placeholder-gray-400", value: pin, onChange: e => setPin(e.target.value) }),
               React.createElement('input', { type: "text", placeholder: "Apelido", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-6 text-center font-bold text-xl text-white placeholder-gray-400", value: inputName, onChange: e => setInputName(e.target.value) }),
-              React.createElement('button', { type: "submit", className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors" }, "Próximo")
+              React.createElement('button', { 
+                  type: "submit", 
+                  disabled: isCheckingPin,
+                  className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors disabled:opacity-50" 
+              }, isCheckingPin ? "Verificando..." : "Próximo")
             )
         )
       )
     );
   }
 
-  if (step === 'AVATAR' && !joined) {
+  // Show Avatar Editor if:
+  // 1. We passed login but haven't joined yet (Initial creation)
+  // 2. We joined, are in LOBBY, and clicked "Edit"
+  if ((step === 'AVATAR' && !joined) || (joined && isEditingAvatar)) {
       return (
           React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen p-4" },
-              React.createElement(AvatarEditor, { onSave: handleAvatarSave })
+              React.createElement(AvatarEditor, { 
+                  initialConfig: currentAvatar,
+                  onSave: handleAvatarSave,
+                  mode: joined ? 'edit' : 'create'
+              })
           )
       );
   }
@@ -1300,6 +1425,7 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
 
   // Only show full screen feedback during ANSWER_REVEAL state
   if (feedback && gameState === GameState.ANSWER_REVEAL) {
+      // ... (Same Feedback View)
       const isCorrect = feedback.isCorrect;
       return (
         React.createElement('div', { className: `relative z-20 absolute inset-0 flex flex-col items-center justify-center p-8 ${isCorrect ? 'bg-green-600' : 'bg-red-600'} transition-colors duration-300 min-h-screen animate-zoom-in` },
@@ -1328,9 +1454,17 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
       return (
         React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8" },
             React.createElement('h2', { className: "text-3xl font-bold mb-4" }, "Você entrou!"),
-            avatarConfig && React.createElement('div', { className: "w-32 h-32 mb-4 mx-auto" }, React.createElement(Avatar, { config: avatarConfig })),
-            React.createElement('p', { className: "text-xl" }, "Veja seu nome na tela?"),
-            React.createElement('div', { className: "mt-4 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse" }, nickname)
+            currentAvatar && (
+                React.createElement('div', { className: "relative group w-40 h-40 mb-6 mx-auto" }, 
+                    React.createElement(Avatar, { config: currentAvatar }),
+                    React.createElement('button', {
+                        onClick: () => setIsEditingAvatar(true),
+                        className: "absolute bottom-0 right-0 bg-white text-indigo-900 p-2 rounded-full shadow-lg border-2 border-indigo-100 hover:scale-110 transition-transform"
+                    }, "✏️")
+                )
+            ),
+            React.createElement('div', { className: "mt-4 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse" }, nickname),
+            React.createElement('p', { className: "text-lg mt-4 opacity-80" }, "Aguarde o início do jogo...")
         )
       )
   }
@@ -1398,7 +1532,7 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
             React.createElement('div', { className: "bg-black text-white py-3 px-6 rounded-lg font-bold text-xl mb-2 w-full" }, place > 0 ? `${place}º Lugar` : '-')
         ),
         React.createElement('div', { className: "mt-8 flex flex-col items-center" },
-            avatarConfig && React.createElement('div', { className: "w-20 h-20 mb-2" }, React.createElement(Avatar, { config: avatarConfig })),
+            currentAvatar && React.createElement('div', { className: "w-20 h-20 mb-2" }, React.createElement(Avatar, { config: currentAvatar })),
             React.createElement('p', { className: "text-white/70 font-bold text-xl" }, nickname)
         )
     )
@@ -1409,18 +1543,15 @@ const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, 
 const CHANNEL_NAME = 'kahoot-clone-2025';
 
 const calculateScore = (timeLeft, totalTime, streak, maxPoints) => {
-    // Pontos por velocidade: até maxPoints pontos.
-    // Quanto mais rápida a resposta, mais próximo de maxPoints.
+    // ... (Same)
     const timePoints = Math.round(maxPoints * (timeLeft / totalTime));
-
-    // Bônus por sequência de respostas, começando da 2ª resposta correta consecutiva.
-    // +50 para 2, +100 para 3, até um máximo de +500.
     const streakBonus = streak > 1 ? Math.min((streak - 1) * 50, 500) : 0;
-
     return timePoints + streakBonus;
 };
 
+// ... (Modals omitted for brevity, logic unchanged)
 const NotificationModal = ({ message, type, onClose }) => {
+    // ...
     const isError = type === 'error';
     const isSuccess = type === 'success';
 
@@ -1453,6 +1584,7 @@ const ConfirmModal = ({ onConfirm, onCancel, text }) => (
 );
 
 const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass }) => {
+    // ...
     const [password, setPassword] = useState('');
 
     const handleSubmit = (e) => {
@@ -1482,6 +1614,7 @@ const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass
 };
 
 const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword, showNotification }) => {
+    // ... (Same)
     const [savedQuizzes, setSavedQuizzes] = useState([]);
     const [quizToLoad, setQuizToLoad] = useState(null);
     const [quizToDelete, setQuizToDelete] = useState(null);
@@ -1714,12 +1847,15 @@ const App = () => {
 
   useEffect(() => {
     if (appMode === 'HOST' && players.length > 0) {
-        // We broadcast RAW players (with JSON in nickname if present) to persist in other clients, 
-        // but locally we display sanitized.
-        // Wait, 'players' state in this component should probably hold SANITIZED data for display,
-        // but when we sync, we might lose the avatar if we stripped it?
-        // Let's store SANITIZED in state, but when we JOIN, we kept the avatar property.
-        // broadcast sends what is in state.
+        // Broadcast local sanitized state (which contains avatar objects)
+        // Wait, we need to broadcast FULL player data so new players can see existing avatars
+        // But local state is sanitized... 
+        // We will just broadcast what we have. The parsePlayer function handles already parsed objects gracefully?
+        // Actually, sanitization splits the string. If we broadcast the object, other clients need to handle object or string.
+        // Let's ensure consistency: 
+        // When JOIN happens, we parse string -> object. State stores object.
+        // broadcast UPDATE_PLAYERS sends array of objects.
+        // Receiver of UPDATE_PLAYERS sees objects. parsePlayer checks if nickname includes |||. If object, it returns it.
         broadcast({ type: 'UPDATE_PLAYERS', payload: players });
     }
   }, [players, appMode]);
@@ -1744,20 +1880,6 @@ const App = () => {
         setPlayers(prev => {
             if (prev.find(p => p.id === msg.payload.id)) return prev;
             playSfx(AUDIO.CORRECT);
-            
-            // Parse incoming join data
-            const rawNick = msg.payload.nickname;
-            let realNick = rawNick;
-            let avatar = null;
-            if (rawNick.includes('|||')) {
-                try {
-                    const parts = rawNick.split('|||');
-                    realNick = parts[0];
-                    avatar = JSON.parse(parts[1]);
-                } catch(e) {}
-            }
-            
-            // Or use the helper if we pass the whole object
             const parsedObj = parsePlayer(msg.payload);
 
             return [...prev, { 
@@ -1769,6 +1891,17 @@ const App = () => {
                 lastAnswerShape: null 
             }];
         });
+    } else if (msg.type === 'UPDATE_AVATAR') {
+        // Handle avatar update from existing player
+        setPlayers(prev => {
+            return prev.map(p => {
+                if (p.id === msg.payload.id) {
+                    const parsedObj = parsePlayer(msg.payload);
+                    return { ...p, avatar: parsedObj.avatar };
+                }
+                return p;
+            });
+        });
     } else if (msg.type === 'LEAVE') {
         setPlayers(prev => prev.filter(p => p.id !== msg.payload.playerId));
     } else if (msg.type === 'REQUEST_STATE') {
@@ -1777,7 +1910,6 @@ const App = () => {
             broadcast({ type: 'UPDATE_PLAYERS', payload: playersRef.current });
         }
     } else if (msg.type === 'PLAYER_INPUT') {
-        // High frequency input - do not trigger react state re-renders if possible for performance
         if (window.updatePlayerVelocity) {
             window.updatePlayerVelocity(msg.payload.id, msg.payload.vector);
         }
@@ -1789,7 +1921,6 @@ const App = () => {
             if (playerIndex === -1) return prev;
             
             const player = prev[playerIndex];
-            // Use refs to get current question index safely inside callback
             const currentQ = quizRef.current?.questions[qIndexRef.current];
             
             if (!currentQ) return prev;
@@ -1798,7 +1929,7 @@ const App = () => {
             const isCorrect = currentQ.answers.find(a => a.shape === answerShape)?.isCorrect || false;
             
             const currentStreak = isCorrect ? player.streak + 1 : 0;
-            const maxPoints = currentQ.points || 100; // Default to 100 if not set, as requested
+            const maxPoints = currentQ.points || 100;
             const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak, maxPoints) : 0;
 
             broadcast({ 
@@ -1828,16 +1959,14 @@ const App = () => {
       hostStartCountdown(0);
   };
 
+  // ... (hostStartCountdown, hostStartQuestion, etc. same as previous, logic unchanged)
   const hostStartCountdown = (indexOverride) => {
       const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
-      
       playSfx(AUDIO.COUNTDOWN);
       setGameState(GameState.COUNTDOWN);
       setTimeLeft(5);
-      // Reset player answers for the new question
       setPlayers(prev => prev.map(p => ({ ...p, lastAnswerShape: null })));
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
-      
       let count = 5;
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
@@ -1849,17 +1978,13 @@ const App = () => {
           }
       }, 1000);
   };
-
   const hostStartQuestion = (indexOverride) => {
       const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
-
       setGameState(GameState.QUESTION);
-      // Use quizRef.current to avoid stale closure on 'quiz'
       const q = quizRef.current.questions[activeIndex];
       setTimeLeft(q.timeLimit);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.QUESTION, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
       broadcast({ type: 'QUESTION_START', payload: { questionIndex: activeIndex, timeLimit: q.timeLimit } });
-
       let count = q.timeLimit;
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
@@ -1871,25 +1996,20 @@ const App = () => {
           }
       }, 1000);
   };
-  
   const hostShowAnswerReveal = () => {
       playSfx(AUDIO.TIME_UP);
       setGameState(GameState.ANSWER_REVEAL);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.ANSWER_REVEAL, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
   };
-
   const hostShowLeaderboard = () => {
       setGameState(GameState.LEADERBOARD);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
   };
-  
   const hostStartBonusGame = () => {
       setGameState(GameState.MINIGAME);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.MINIGAME, pin } });
   };
-
   const hostUpdateBonusScores = (scoreUpdates) => {
-      // scoreUpdates: { playerId: pointsAdded }
       playSfx(AUDIO.COLLECT);
       setPlayers(prev => {
           return prev.map(p => {
@@ -1900,7 +2020,6 @@ const App = () => {
           });
       });
   };
-
   const hostNextQuestion = () => {
       if (currentQIndex + 1 >= quiz.questions.length) {
           setGameState(GameState.PODIUM);
@@ -1911,7 +2030,6 @@ const App = () => {
           hostStartCountdown(nextIndex);
       }
   };
-  
   const handleNextFromHostGame = () => {
     if (gameState === GameState.ANSWER_REVEAL || gameState === GameState.MINIGAME) {
         hostShowLeaderboard();
@@ -1990,12 +2108,8 @@ const App = () => {
   };
   
   const playerJoin = async (nickname, pinToJoin, avatarConfig) => {
-      if (!pinToJoin) {
-          showNotification("Por favor, insira um PIN para entrar no jogo.", 'error');
-          return;
-      }
+      if (!pinToJoin) return;
       
-      // Persist avatar by appending it to the nickname string before sending to DB
       const encodedNickname = avatarConfig 
         ? `${nickname}|||${JSON.stringify(avatarConfig)}`
         : nickname;
@@ -2020,9 +2134,18 @@ const App = () => {
             }
           }
       } else {
-          console.error("Falha ao entrar no jogo.");
-          showNotification("Falha ao entrar no jogo. O PIN pode estar incorreto ou o jogo não existe.", 'error');
+          showNotification("Falha ao entrar no jogo.", 'error');
       }
+  };
+
+  const playerUpdateAvatar = async (config) => {
+      if (!myPlayerId) return;
+      const myPlayer = players.find(p => p.id === myPlayerId);
+      const nickname = myPlayer ? myPlayer.nickname : "";
+      const encodedNickname = `${nickname}|||${JSON.stringify(config)}`;
+
+      await updatePlayerNickname(myPlayerId, encodedNickname);
+      broadcast({ type: 'UPDATE_AVATAR', payload: { id: myPlayerId, nickname: encodedNickname } });
   };
 
   const playerSubmit = (shape) => {
@@ -2032,11 +2155,11 @@ const App = () => {
       broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeftRef.current } }); 
   };
   
-  // Stable callback using Refs to avoid re-creation on every render
   const playerJoystickMove = useCallback((vector) => {
       broadcast({ type: 'PLAYER_INPUT', payload: { id: myPlayerIdRef.current, vector }});
   }, []);
   
+  // ... (resetAllState, executeBackToMenu, handleBackToMenu, etc. unchanged)
   const resetAllState = () => {
     setAppMode('MENU');
     setGameState(GameState.MENU);
@@ -2060,7 +2183,6 @@ const App = () => {
         }
     }
   };
-
   const executeBackToMenu = () => {
     if (appMode === 'PLAYER' && myPlayerId) {
         broadcast({ type: 'LEAVE', payload: { playerId: myPlayerId } });
@@ -2068,28 +2190,23 @@ const App = () => {
         localStorage.removeItem('kahoot-player-id');
         setMyPlayerId("");
     }
-    
     if (appMode === 'HOST') {
         broadcast({ type: 'GAME_ENDED' });
         deleteGameSessionByPin(pin);
     }
-
     resetAllState();
   };
-
   const handleBackToMenu = () => {
     if (appMode === 'MENU' || isConfirmingExit) return;
     setIsConfirmingExit(true);
   };
-
   const shouldShowBackButton = () => {
     if (appMode === 'MENU' || appMode === 'LOADER') return false;
     if (appMode === 'HOST' && (gameState === GameState.CREATE || gameState === GameState.LOBBY)) {
-        return false; // No back button in creator or host lobby
+        return false;
     }
     return true;
   };
-  
   const hashPassword = async (password) => {
       const encoder = new TextEncoder();
       const data = encoder.encode(password);
@@ -2098,7 +2215,6 @@ const App = () => {
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       return hashHex;
   };
-
   const handleSaveQuiz = async (quizData, name, password) => {
       if (!name || !password) {
           showNotification("O nome do quiz e a senha são obrigatórios.", 'error');
@@ -2120,7 +2236,6 @@ const App = () => {
           showNotification("Ocorreu um erro ao salvar o quiz.", 'error');
       }
   };
-
   const handleDeleteQuiz = (quizId) => {
       try {
           const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
@@ -2130,13 +2245,11 @@ const App = () => {
           showNotification("Ocorreu um erro ao excluir o quiz.", 'error');
       }
   };
-
   const handleLoadQuiz = (quizData) => {
       setQuiz(quizData);
       setAppMode('HOST');
       setGameState(GameState.CREATE);
   };
-
   const BackButton = () => (
     React.createElement('button', { onClick: handleBackToMenu, className: "absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" },
         React.createElement('span', null, "←"), " Voltar"
@@ -2145,11 +2258,11 @@ const App = () => {
 
   const myPlayer = players.find(p => p.id === myPlayerId);
   const myNickname = myPlayer ? myPlayer.nickname : "";
+  const myAvatar = myPlayer ? myPlayer.avatar : null;
   const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
 
   return (
     React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
-      // Notification Modal
       notification && React.createElement(NotificationModal, {
           message: notification.message,
           type: notification.type,
@@ -2220,6 +2333,7 @@ const App = () => {
             shouldShowBackButton() && React.createElement(BackButton, null),
             React.createElement(PlayerView, { 
                 onJoin: playerJoin, 
+                onUpdateAvatar: playerUpdateAvatar,
                 onSubmit: playerSubmit,
                 onJoystickMove: playerJoystickMove,
                 gameState: gameState, 
@@ -2227,6 +2341,7 @@ const App = () => {
                 score: myScore,
                 place: myRank,
                 nickname: myNickname, 
+                currentAvatar: myAvatar,
                 feedback: myFeedback,
                 showNotification: showNotification
             })
