@@ -1,5 +1,5 @@
 // --- IMPORTS ---
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import QRCodeStyling from 'qr-code-styling';
 import { createClient } from "@supabase/supabase-js";
@@ -237,7 +237,7 @@ const VirtualJoystick = ({ onMove }) => {
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isActive, setIsActive] = useState(false);
     
-    // Throttle send rate to avoid flooding
+    // Throttle send rate to avoid flooding, but fast enough for smooth movement (30ms = ~33fps)
     const lastSendTime = useRef(0);
 
     const handleStart = (e) => {
@@ -254,8 +254,10 @@ const VirtualJoystick = ({ onMove }) => {
     const handleMove = useCallback((e) => {
         if (!isActive || !joystickRef.current) return;
         
-        // Prevent scrolling on touch
-        if(e.cancelable) e.preventDefault();
+        // Critical: Prevent scrolling on touch devices so joystick works continuously
+        if(e.cancelable && e.type.startsWith('touch')) {
+             e.preventDefault();
+        }
 
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -283,32 +285,51 @@ const VirtualJoystick = ({ onMove }) => {
         setPosition({ x: dx, y: dy });
 
         const now = Date.now();
-        if (now - lastSendTime.current > 50) { // Send every 50ms
+        // Send more frequently for smoother movement (30ms)
+        if (now - lastSendTime.current > 30) { 
             onMove({ x: normalizedX, y: normalizedY });
             lastSendTime.current = now;
         }
     }, [isActive, onMove]);
 
+    // Attach non-passive listener to prevent scroll
+    useEffect(() => {
+        const ref = joystickRef.current;
+        if (!ref) return;
+
+        const onTouchMove = (e) => handleMove(e);
+        // Passive: false is required to use preventDefault()
+        ref.addEventListener('touchmove', onTouchMove, { passive: false });
+        
+        return () => {
+            ref.removeEventListener('touchmove', onTouchMove);
+        };
+    }, [handleMove]);
+
     return (
-        React.createElement('div', { className: "flex flex-col items-center justify-center h-full select-none touch-none" },
-            React.createElement('h3', { className: "text-2xl font-black mb-8 animate-pulse text-yellow-300" }, "Controle o Personagem!"),
+        React.createElement('div', { 
+            className: "flex flex-col items-center justify-center h-full",
+            style: { touchAction: 'none' } // Important: Disables browser gestures
+        },
+            React.createElement('h3', { className: "text-2xl font-black mb-8 animate-pulse text-yellow-300 pointer-events-none" }, "Controle o Personagem!"),
             React.createElement('div', { 
                 ref: joystickRef,
                 className: "w-64 h-64 bg-white/10 rounded-full border-4 border-white/30 relative flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)]",
+                style: { touchAction: 'none' },
                 onMouseDown: handleStart,
                 onMouseMove: handleMove,
                 onMouseUp: handleEnd,
                 onMouseLeave: handleEnd,
                 onTouchStart: handleStart,
-                onTouchMove: handleMove,
+                // onTouchMove handled by effect for passive: false
                 onTouchEnd: handleEnd
             },
                 React.createElement('div', { 
-                    className: "w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-2xl absolute transition-transform duration-75 ease-linear border-4 border-white/50",
+                    className: "w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-2xl absolute transition-transform duration-75 ease-linear border-4 border-white/50 pointer-events-none",
                     style: { transform: `translate(${position.x}px, ${position.y}px)` }
                 })
             ),
-            React.createElement('p', { className: "mt-8 text-white/50 font-bold uppercase tracking-widest text-sm" }, "Use o analógico para pegar bolas!")
+            React.createElement('p', { className: "mt-8 text-white/50 font-bold uppercase tracking-widest text-sm pointer-events-none" }, "Use o analógico para pegar bolas!")
         )
     );
 };
@@ -319,6 +340,16 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     const [gameItems, setGameItems] = useState([]);
     const [playerPositions, setPlayerPositions] = useState({});
     
+    // Dynamic Player Size Calculation
+    // Fewer players = Larger size. More players = Smaller size.
+    // Minimum size 1.5vw, Maximum 6vw.
+    const playerSizeVw = useMemo(() => {
+        const count = Math.max(players.length, 1);
+        // Logic: Start at 6vw. As count goes up, size goes down.
+        // Approx: 1 player -> 6vw, 10 players -> ~4vw, 50 players -> ~1.5vw
+        return Math.max(1.5, Math.min(6, 40 / Math.sqrt(count)));
+    }, [players.length]);
+
     // Game loop refs
     const requestRef = useRef();
     const startTimeRef = useRef(Date.now());
@@ -396,7 +427,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
         // 3. Update Physics & Collision
         setPlayerPositions(prevPos => {
             const nextPos = { ...prevPos };
-            const speed = 0.5; // movement speed per frame
+            const speed = 0.6; // slightly faster speed per frame
+            const radius = playerSizeVw / 2; // Radius in VW (approximation)
             
             // Move players
             Object.keys(nextPos).forEach(pid => {
@@ -404,9 +436,11 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 let nx = p.x + (p.vx * speed);
                 let ny = p.y + (p.vy * speed);
                 
-                // Boundaries (0-100%)
-                nx = Math.max(2, Math.min(98, nx));
-                ny = Math.max(2, Math.min(98, ny));
+                // Boundaries (keep entire ball inside)
+                // If ball is at 0%, left edge is at -radius. We want left edge at 0.
+                // So center must be at radius.
+                nx = Math.max(radius, Math.min(100 - radius, nx));
+                ny = Math.max(radius, Math.min(100 - radius, ny));
                 
                 nextPos[pid] = { ...p, x: nx, y: ny };
             });
@@ -429,7 +463,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                         const dy = (p.y - item.y) * (16/9); 
                         const dist = Math.sqrt(dx*dx + dy*dy);
                         
-                        if (dist < 3.5) { // Collision threshold
+                        // Collision threshold (player radius + item radius approximation)
+                        if (dist < (radius + item.size/2)) { 
                             collected = true;
                             if (!scoresToUpdate[pid]) scoresToUpdate[pid] = 0;
                             scoresToUpdate[pid] += item.value;
@@ -462,7 +497,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     useEffect(() => {
         requestRef.current = requestAnimationFrame(animate);
         return () => cancelAnimationFrame(requestRef.current);
-    }, [timeLeft]);
+    }, [timeLeft, playerSizeVw]);
 
     return (
         React.createElement('div', { className: "relative w-full h-full bg-slate-900 overflow-hidden select-none" },
@@ -513,8 +548,13 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                     style: { left: `${p.x}%`, top: `${p.y}%` }
                 },
                     React.createElement('div', { 
-                        className: "w-12 h-12 md:w-16 md:h-16 rounded-full border-4 border-white shadow-xl flex items-center justify-center text-white font-bold text-xs overflow-hidden",
-                        style: { backgroundColor: p.color }
+                        className: "rounded-full border-2 md:border-4 border-white shadow-xl flex items-center justify-center text-white font-bold overflow-hidden transition-all",
+                        style: { 
+                            backgroundColor: p.color,
+                            width: `${playerSizeVw}vw`,
+                            height: `${playerSizeVw}vw`,
+                            fontSize: `${playerSizeVw * 0.4}vw`
+                        }
                     },
                          playerInfo ? playerInfo.nickname.substring(0,2).toUpperCase() : '??'
                     ),
