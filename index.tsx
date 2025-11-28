@@ -11,6 +11,7 @@ const GameState = {
     LOBBY: 'LOBBY',
     COUNTDOWN: 'COUNTDOWN',
     QUESTION: 'QUESTION',
+    ANSWER_REVEAL: 'ANSWER_REVEAL',
     LEADERBOARD: 'LEADERBOARD',
     PODIUM: 'PODIUM',
 };
@@ -478,6 +479,41 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
           React.createElement('p', { className: "text-2xl mt-8" }, "Prepare-se!")
         );
 
+      case GameState.ANSWER_REVEAL:
+          const totalAnswers = players.filter(p => p.lastAnswerShape).length;
+          const answerCounts = question.answers.reduce((acc, answer) => {
+              acc[answer.shape] = players.filter(p => p.lastAnswerShape === answer.shape).length;
+              return acc;
+          }, {});
+
+          return React.createElement(AnimatedScreen, { key: 'answer-reveal', animationClass: 'animate-fade-in' },
+              React.createElement('div', { className: "flex flex-col h-full p-4 w-full max-w-6xl mx-auto" },
+                  React.createElement('div', { className: `bg-white text-black p-6 rounded-lg shadow-2xl text-center mx-auto w-full mb-6` },
+                      React.createElement('h2', { className: "text-2xl md:text-4xl font-bold leading-tight" }, question.text)
+                  ),
+                  React.createElement('div', { className: "flex-1 grid grid-cols-1 md:grid-cols-2 gap-3" },
+                      question.answers.map((answer) => {
+                          const count = answerCounts[answer.shape] || 0;
+                          const percentage = totalAnswers > 0 ? (count / totalAnswers) * 100 : 0;
+                          return React.createElement('div', { key: answer.shape, className: `relative flex items-center justify-between p-4 rounded-lg text-white transition-all duration-500 overflow-hidden ${answer.isCorrect ? 'bg-green-600' : 'bg-slate-700'}`},
+                              React.createElement('div', { className: 'absolute top-0 left-0 h-full bg-black/20 rounded-lg', style: { width: `${percentage}%`, transition: 'width 0.5s ease-out' } }),
+                              React.createElement('div', { className: 'relative z-10 flex items-center' },
+                                  React.createElement('div', { className: "text-3xl mr-4" }, SHAPE_ICONS[answer.shape]),
+                                  React.createElement('span', { className: "text-lg font-bold" }, answer.text)
+                              ),
+                              React.createElement('div', { className: 'relative z-10 flex items-center gap-2' },
+                                  answer.isCorrect && React.createElement('span', { className: 'text-2xl font-black' }, '✓'),
+                                  React.createElement('span', { className: "text-xl font-black bg-black/30 px-3 py-1 rounded-md" }, count)
+                              )
+                          );
+                      })
+                  ),
+                  React.createElement('div', { className: 'flex justify-end mt-4' },
+                      React.createElement('button', { onClick: onNext, className: "bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105" }, 'Avançar')
+                  )
+              )
+          );
+          
       case GameState.LEADERBOARD:
       case GameState.PODIUM:
         const isPodium = gameState === GameState.PODIUM;
@@ -825,6 +861,12 @@ const App = () => {
   const timerRef = useRef(null);
   const playerTimerRef = useRef(null);
 
+  // Refs to hold current state for callbacks, preventing stale state issues.
+  const quizRef = useRef(quiz);
+  useEffect(() => { quizRef.current = quiz; }, [quiz]);
+  const qIndexRef = useRef(currentQIndex);
+  useEffect(() => { qIndexRef.current = currentQIndex; }, [currentQIndex]);
+
   useEffect(() => {
     bgMusicRef.current = new Audio(AUDIO.LOBBY_MUSIC);
     bgMusicRef.current.loop = true;
@@ -924,7 +966,7 @@ const App = () => {
         setPlayers(prev => {
             if (prev.find(p => p.id === msg.payload.id)) return prev;
             playSfx(AUDIO.CORRECT); 
-            return [...prev, { id: msg.payload.id, nickname: msg.payload.nickname, score: 0, streak: 0 }];
+            return [...prev, { id: msg.payload.id, nickname: msg.payload.nickname, score: 0, streak: 0, lastAnswerShape: null }];
         });
     } else if (msg.type === 'LEAVE') {
         setPlayers(prev => prev.filter(p => p.id !== msg.payload.playerId));
@@ -941,7 +983,7 @@ const App = () => {
             if (playerIndex === -1) return prev;
             
             const player = prev[playerIndex];
-            const currentQ = quiz?.questions[currentQIndex];
+            const currentQ = quizRef.current?.questions[qIndexRef.current];
             
             if (!currentQ) return prev;
 
@@ -966,7 +1008,8 @@ const App = () => {
                 ...player,
                 score: player.score + pointsToAdd,
                 streak: currentStreak,
-                lastAnswerCorrect: isCorrect
+                lastAnswerCorrect: isCorrect,
+                lastAnswerShape: answerShape
             };
             return newPlayers;
         });
@@ -981,6 +1024,8 @@ const App = () => {
       playSfx(AUDIO.COUNTDOWN);
       setGameState(GameState.COUNTDOWN);
       setTimeLeft(5);
+      // Reset player answers for the new question
+      setPlayers(prev => prev.map(p => ({ ...p, lastAnswerShape: null })));
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
       
       let count = 5;
@@ -1009,13 +1054,18 @@ const App = () => {
           setTimeLeft(count);
           if (count <= 0) {
               clearInterval(timerRef.current);
-              hostShowLeaderboard();
+              hostShowAnswerReveal();
           }
       }, 1000);
   };
+  
+  const hostShowAnswerReveal = () => {
+      playSfx(AUDIO.TIME_UP);
+      setGameState(GameState.ANSWER_REVEAL);
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.ANSWER_REVEAL, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+  };
 
   const hostShowLeaderboard = () => {
-      playSfx(AUDIO.TIME_UP);
       setGameState(GameState.LEADERBOARD);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
   };
@@ -1028,6 +1078,14 @@ const App = () => {
           setCurrentQIndex(prev => prev + 1);
           hostStartCountdown();
       }
+  };
+  
+  const handleNextFromHostGame = () => {
+    if (gameState === GameState.ANSWER_REVEAL) {
+        hostShowLeaderboard();
+    } else if (gameState === GameState.LEADERBOARD) {
+        hostNextQuestion();
+    }
   };
 
   const broadcast = async (msg) => {
@@ -1046,14 +1104,14 @@ const App = () => {
   const handlePlayerMessages = (msg) => {
       if (msg.type === 'SYNC_STATE') {
           setGameState(msg.payload.state);
-          if (msg.payload.state === GameState.QUESTION) {
+          if (msg.payload.state === GameState.QUESTION || msg.payload.state === GameState.COUNTDOWN) {
               setHasAnswered(false);
               setMyFeedback(null); 
           }
           if (msg.payload.state === GameState.LOBBY) {
               setMyScore(0);
           }
-          if (msg.payload.state === GameState.LEADERBOARD || msg.payload.state === GameState.PODIUM) {
+          if (msg.payload.state !== GameState.QUESTION) {
               if (playerTimerRef.current) clearInterval(playerTimerRef.current);
           }
       } 
@@ -1281,7 +1339,7 @@ const App = () => {
              ) : gameState === GameState.LOBBY ? (
                  React.createElement(Lobby, { pin: pin, players: players, onStart: hostStartGame, onCancel: handleBackToMenu })
              ) : (
-                 React.createElement(HostGame, { quiz: quiz, players: players, currentQuestionIndex: currentQIndex, timeLeft: timeLeft, gameState: gameState, onNext: hostNextQuestion, onEndGame: handleBackToMenu })
+                 React.createElement(HostGame, { quiz: quiz, players: players, currentQuestionIndex: currentQIndex, timeLeft: timeLeft, gameState: gameState, onNext: handleNextFromHostGame, onEndGame: handleBackToMenu })
              )
         )
       ) : ( // PLAYER MODE
