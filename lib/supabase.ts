@@ -4,26 +4,49 @@ import { Quiz, Question, Answer, Shape } from '../types';
 const SUPABASE_URL = "https://szkpmdfcrucpwifbokkc.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6a3BtZGZjcnVjcHdpZmJva2tjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1OTc5NDcsImV4cCI6MjA3OTE3Mzk0N30.MU-dW7-ZwRRS9weupQ4kb0dZN6brurW0PNQtbIPCn_U";
 
-// Custom fetch to force schema header. This is a workaround for the PGRST106 error.
-// The root cause is likely that the 'public' schema is not exposed in your Supabase project's API settings.
-// Please check Project Settings > API > Exposed schemas and ensure 'public' is listed.
-const customFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-  const headers = new Headers(init?.headers);
-  // PostgREST uses these headers to determine which schema to use.
-  headers.set('Accept-Profile', 'public');
-  headers.set('Content-Profile', 'public');
-  
-  const newInit = { ...init, headers };
-  return fetch(input, newInit);
-};
-
+// A forma moderna e confiável de especificar o esquema é através das opções do cliente.
+// A solução anterior com 'customFetch' era uma gambiarra que podia falhar em certos casos, como nas exclusões.
+// Esta mudança garante que o esquema 'public' seja usado em todas as operações de forma consistente.
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: {
-      fetch: customFetch,
+    db: {
+        schema: 'public',
     },
 });
 
 // --- HELPER FUNCTIONS FOR DATABASE INTERACTION ---
+
+const _insertQuestionsAndAnswers = async (quizId: string, questions: Question[]) => {
+    for (const q of questions) {
+        const { data: qData, error: qError } = await supabase
+            .from('questions')
+            .insert([{ 
+                quiz_id: quizId, 
+                text: q.text || "Nova Pergunta", 
+                time_limit: q.timeLimit || 20,
+                image_url: q.imageUrl || null 
+            }])
+            .select()
+            .single();
+        
+        if (qError) throw qError;
+        const qId = qData.id;
+
+        if (q.answers && q.answers.length > 0) {
+            const answersToInsert = q.answers.map(a => ({
+                question_id: qId,
+                text: a.text || "",
+                is_correct: a.isCorrect || false,
+                shape: a.shape || Shape.TRIANGLE
+            }));
+
+            const { error: aError } = await supabase
+                .from('answers')
+                .insert(answersToInsert);
+            
+            if (aError) throw aError;
+        }
+    }
+};
 
 // 1. Fetch all Quizzes
 export const fetchQuizzes = async () => {
@@ -116,35 +139,7 @@ export const saveQuizToSupabase = async (quiz: Quiz) => {
         const quizId = quizData.id;
 
         // B. Insert Questions & Answers
-        for (const q of quiz.questions) {
-            const { data: qData, error: qError } = await supabase
-                .from('questions')
-                .insert([{ 
-                    quiz_id: quizId, 
-                    text: q.text || "Nova Pergunta", 
-                    time_limit: q.timeLimit || 20,
-                    image_url: q.imageUrl || null 
-                }])
-                .select()
-                .single();
-            
-            if (qError) throw qError;
-            const qId = qData.id;
-
-            // C. Insert Answers
-            const answersToInsert = q.answers.map(a => ({
-                question_id: qId,
-                text: a.text || "",
-                is_correct: a.isCorrect || false,
-                shape: a.shape || Shape.TRIANGLE
-            }));
-
-            const { error: aError } = await supabase
-                .from('answers')
-                .insert(answersToInsert);
-            
-            if (aError) throw aError;
-        }
+        await _insertQuestionsAndAnswers(quizId, quiz.questions);
 
         return { success: true, id: quizId };
     } catch (error: any) {
@@ -153,7 +148,58 @@ export const saveQuizToSupabase = async (quiz: Quiz) => {
     }
 };
 
-// 4. Create Game Session (games)
+// 4. Update an existing Quiz - REBUILT FOR ROBUSTNESS
+export const updateQuizInSupabase = async (quizId: string, quiz: Quiz) => {
+    try {
+        // A. Update the quiz title
+        const { error: titleUpdateError } = await supabase
+            .from('quizzes')
+            .update({ title: quiz.title })
+            .eq('id', quizId);
+
+        if (titleUpdateError) throw titleUpdateError;
+
+        // B. Delete all old questions and answers robustly
+        // Step B1: Find all old question IDs for the quiz.
+        const { data: oldQuestions, error: questionsSelectError } = await supabase
+            .from('questions')
+            .select('id')
+            .eq('quiz_id', quizId);
+        
+        if (questionsSelectError) throw questionsSelectError;
+
+        const oldQuestionIds = oldQuestions?.map(q => q.id) || [];
+
+        // Step B2: If old questions exist, delete their answers first.
+        if (oldQuestionIds.length > 0) {
+            const { error: answersError } = await supabase
+                .from('answers')
+                .delete()
+                .in('question_id', oldQuestionIds);
+            
+            if (answersError) throw answersError;
+        }
+
+        // Step B3: Now delete all questions for the quiz in a single operation.
+        const { error: questionsError } = await supabase
+            .from('questions')
+            .delete()
+            .eq('quiz_id', quizId);
+
+        if (questionsError) throw questionsError;
+
+        // C. Re-insert the new questions and answers
+        await _insertQuestionsAndAnswers(quizId, quiz.questions);
+        
+        return { success: true, id: quizId };
+    } catch (error: any) {
+        console.error("Erro ao atualizar quiz:", JSON.stringify(error, null, 2));
+        return { success: false, error };
+    }
+};
+
+
+// 5. Create Game Session (games)
 export const createGameSession = async (pin: string, quizTitle: string) => {
     const { data, error } = await supabase
         .from('games')
@@ -169,7 +215,7 @@ export const createGameSession = async (pin: string, quizTitle: string) => {
     return data;
 };
 
-// 5. Register Player (players)
+// 6. Register Player (players)
 export const registerPlayer = async (pin: string, nickname: string, score: number = 0) => {
     // First find the game by PIN
     const { data: game, error: gameError } = await supabase

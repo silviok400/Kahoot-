@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BroadcastMessage, GameState, Player, Quiz, Shape } from './types';
 import { AUDIO } from './constants';
 import Background from './components/Shared/Background';
@@ -343,10 +343,6 @@ const App: React.FC = () => {
       broadcast({ type: 'JOIN', payload: { nickname, id } });
       
       // DB: Register player in 'jogadores' linked to this PIN
-      // Note: We need the PIN from URL if direct join, but the PlayerView manages validation
-      // Here we assume PIN is available via URL or passed context if we refined further, 
-      // but 'pin' state in App.tsx might be empty for player.
-      // However, we can try to grab it from URL params for DB logging.
       const urlParams = new URLSearchParams(window.location.search);
       const pinParam = urlParams.get('pin');
       if (pinParam) {
@@ -366,17 +362,7 @@ const App: React.FC = () => {
 
   // --- NAVIGATION LOGIC ---
   const handleBackToMenu = () => {
-    const isHost = appMode === 'HOST';
-    // If we are a host and have moved past the initial menu (e.g. creating quiz or lobby)
-    // Or if we are a player and are joined
-    const isPlayerJoined = appMode === 'PLAYER' && players.some(p => p.id === myPlayerId);
-
-    if (isHost || isPlayerJoined) {
-        if (!window.confirm("Tem certeza que deseja sair? O progresso atual do jogo será perdido.")) {
-            return;
-        }
-    }
-
+    // This function now immediately resets the state without confirmation.
     setAppMode('MENU');
     setGameState(GameState.MENU);
     setQuiz(null);
@@ -387,7 +373,20 @@ const App: React.FC = () => {
     setMyFeedback(null);
     setHasAnswered(false);
     // We do not clear myPlayerId to allow rejoining easily
-    if (bgMusicRef.current) bgMusicRef.current.pause();
+    if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+        bgMusicRef.current.currentTime = 0;
+    }
+  };
+
+  // Common Back Button Logic
+  const shouldShowBackButton = () => {
+    // Hide on Menu. Also hide on screens that have their own dedicated cancel buttons.
+    if (appMode === 'MENU') return false;
+    if (appMode === 'HOST' && (gameState === GameState.CREATE || gameState === GameState.LOBBY)) {
+        return false;
+    }
+    return true;
   };
 
   // --- RENDER ---
@@ -432,19 +431,6 @@ const App: React.FC = () => {
       );
   }
 
-  // Common Back Button Logic
-  const shouldShowBackButton = () => {
-      // Host: Never show back button once we leave MENU
-      if (appMode === 'HOST') return false;
-      
-      // Player: Show only if NOT joined yet (still on PIN screen)
-      if (appMode === 'PLAYER') {
-         const isJoined = players.some(p => p.id === myPlayerId);
-         return !isJoined;
-      }
-      return true;
-  };
-
   const BackButton = () => (
     <button 
         onClick={handleBackToMenu}
@@ -484,6 +470,7 @@ const App: React.FC = () => {
                     timeLeft={timeLeft}
                     gameState={gameState}
                     onNext={hostNextQuestion}
+                    onEndGame={handleBackToMenu}
                  />
              )}
         </div>

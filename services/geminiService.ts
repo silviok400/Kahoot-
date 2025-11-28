@@ -35,7 +35,8 @@ export const generateQuizQuestions = async (topic: string, count: number = 5): P
     }
   });
 
-  const rawQuestions = JSON.parse(response.text || "[]");
+  // FIX: Safely trim whitespace from the response before parsing JSON.
+  const rawQuestions = JSON.parse(response.text?.trim() || "[]");
 
   return rawQuestions.map((q: any, index: number) => ({
     id: `q-${Date.now()}-${index}`,

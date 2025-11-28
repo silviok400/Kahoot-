@@ -9,9 +9,10 @@ interface HostGameProps {
   timeLeft: number;
   gameState: GameState;
   onNext: () => void;
+  onEndGame: () => void;
 }
 
-const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext }) => {
+const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext, onEndGame }) => {
   const question = quiz.questions[currentQuestionIndex];
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
@@ -47,7 +48,7 @@ const HostGame: React.FC<HostGameProps> = ({ quiz, players, currentQuestionIndex
             </div>
 
             <button 
-                onClick={onNext}
+                onClick={isPodium ? onEndGame : onNext}
                 className="mt-auto mb-10 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105"
             >
                 {isPodium ? 'Voltar ao Menu' : 'Próxima Pergunta'}

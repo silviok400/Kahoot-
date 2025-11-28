@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Quiz, Question, Shape } from '../../types';
-import { saveQuizToSupabase, fetchQuizzes, fetchFullQuiz } from '../../lib/supabase';
-import { generateQuizQuestions } from '../../services/geminiService';
+import { saveQuizToSupabase, fetchQuizzes, fetchFullQuiz, updateQuizInSupabase } from '../../lib/supabase';
 
 interface QuizCreatorProps {
   onSave: (quiz: Quiz) => void;
@@ -11,63 +10,61 @@ interface QuizCreatorProps {
 export const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) => {
   const [title, setTitle] = useState("Meu Quiz Incrível");
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [loadedQuizId, setLoadedQuizId] = useState<string | null>(null);
   
   // Database State
   const [savedQuizzes, setSavedQuizzes] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [processingQuizId, setProcessingQuizId] = useState<string | null>(null);
   
-  // AI State
-  const [isGenerating, setIsGenerating] = useState(false);
-
   useEffect(() => {
     loadSavedQuizzes();
   }, []);
 
   const loadSavedQuizzes = async () => {
+      setIsLoading(true);
       const data = await fetchQuizzes();
       setSavedQuizzes(data);
+      setIsLoading(false);
   };
 
   const handleLoadQuiz = async (quizId: string) => {
       if (!quizId) return;
       setIsLoading(true);
+      setProcessingQuizId(quizId);
       const fullQuiz = await fetchFullQuiz(quizId);
       if (fullQuiz) {
           setTitle(fullQuiz.title);
           setQuestions(fullQuiz.questions);
+          setLoadedQuizId(quizId);
       }
       setIsLoading(false);
+      setProcessingQuizId(null);
+  };
+
+  const handleNewQuiz = () => {
+    setTitle("Meu Quiz Incrível");
+    setQuestions([]);
+    setLoadedQuizId(null);
   };
 
   const handleSaveToCloud = async () => {
       setIsSaving(true);
-      const result = await saveQuizToSupabase({ title, questions });
+      const quizData = { title, questions };
+      const result = loadedQuizId
+        ? await updateQuizInSupabase(loadedQuizId, quizData)
+        : await saveQuizToSupabase(quizData);
+        
       setIsSaving(false);
-      if (result.success) {
-          alert("Quiz salvo com sucesso no banco de dados!");
+      if (result.success && result.id) {
+          alert(`Quiz ${loadedQuizId ? 'atualizado' : 'salvo'} com sucesso!`);
           loadSavedQuizzes(); // Refresh list
+          setLoadedQuizId(result.id);
       } else {
-          // Display the actual error message
           const msg = result.error?.message || result.error?.details || JSON.stringify(result.error);
           alert(`Erro ao salvar: ${msg}. Verifique o console para mais detalhes.`);
       }
-  };
-
-  const handleAiGenerate = async () => {
-    const topic = prompt("Sobre qual tema você quer gerar perguntas?");
-    if (!topic) return;
-
-    setIsGenerating(true);
-    try {
-        const newQuestions = await generateQuizQuestions(topic, 5);
-        setQuestions([...questions, ...newQuestions]);
-    } catch (error) {
-        console.error(error);
-        alert("Erro ao gerar perguntas com IA.");
-    } finally {
-        setIsGenerating(false);
-    }
   };
 
   const addEmptyQuestion = () => {
@@ -108,25 +105,20 @@ export const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) =>
     <div className="relative z-10 flex flex-col w-full h-[100dvh] md:h-[90vh] md:max-w-5xl md:mx-auto bg-slate-900/90 md:bg-white/10 backdrop-blur-md md:rounded-xl border-none md:border border-white/20 shadow-2xl md:mt-4 overflow-hidden">
       
       {/* Header - Fixed at top */}
-      <div className="flex flex-col md:flex-row justify-between items-center p-4 bg-black/20 md:bg-transparent border-b border-white/10 md:border-none shrink-0 gap-3">
-        <h2 className="text-xl md:text-3xl font-black text-white w-full text-center md:text-left">Criar Kahoot!</h2>
+      <div className="flex flex-col md:flex-row justify-between items-center p-4 bg-black/20 border-b border-white/10 shrink-0 gap-3">
+        <div className="flex items-center gap-4 w-full md:w-auto text-center md:text-left">
+          <h2 className="text-xl md:text-3xl font-black text-white">Criar Kahoot!</h2>
+          <button onClick={handleNewQuiz} className="px-3 py-1 bg-white/10 rounded font-bold hover:bg-white/20 text-xs whitespace-nowrap">+ Novo Quiz</button>
+        </div>
         <div className="flex gap-2 w-full md:w-auto">
           <button onClick={onCancel} className="flex-1 md:flex-none px-3 py-2 bg-gray-600 rounded font-bold hover:bg-gray-500 text-sm">Cancelar</button>
           
-          <button 
-            onClick={handleAiGenerate}
-            disabled={isGenerating}
-            className="flex-1 md:flex-none px-4 py-2 bg-purple-600 rounded font-bold hover:bg-purple-500 disabled:opacity-50 text-sm whitespace-nowrap flex items-center justify-center gap-2 border border-purple-400/50"
-          >
-             {isGenerating ? 'Gerando...' : '✨ Gerar com IA'}
-          </button>
-
           <button 
             onClick={handleSaveToCloud} 
             disabled={isSaving || questions.length === 0}
             className="flex-1 md:flex-none px-4 py-2 bg-blue-600 rounded font-bold hover:bg-blue-500 disabled:opacity-50 text-sm whitespace-nowrap"
           >
-            {isSaving ? 'Salvando...' : 'Salvar (DB)'}
+            {isSaving ? 'Salvando...' : (loadedQuizId ? 'Atualizar (DB)' : 'Salvar (DB)')}
           </button>
 
           <button 
@@ -137,23 +129,6 @@ export const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) =>
             Jogar Agora
           </button>
         </div>
-      </div>
-
-      {/* Database Loader Bar */}
-      <div className="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center gap-2">
-          <span className="text-xs uppercase font-bold text-white/60">Carregar Salvo:</span>
-          <select 
-            onChange={(e) => handleLoadQuiz(e.target.value)}
-            className="bg-black/30 border border-white/20 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-white"
-            defaultValue=""
-            disabled={isLoading}
-          >
-              <option value="" disabled>Selecione um questionário...</option>
-              {savedQuizzes.map(q => (
-                  <option key={q.id} value={q.id}>{q.title} ({new Date(q.created_at).toLocaleDateString()})</option>
-              ))}
-          </select>
-          {isLoading && <span className="text-xs animate-pulse">Carregando...</span>}
       </div>
 
       {/* Scrollable Content */}
@@ -169,13 +144,41 @@ export const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) =>
             placeholder="Digite o título..."
             />
         </div>
+        
+        {/* Saved Quizzes Section */}
+        <div className="bg-white/5 p-4 rounded-xl border border-white/10">
+            <h3 className="text-xs uppercase font-bold mb-3 text-white/70">Quizzes Salvos</h3>
+            {savedQuizzes.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                    {savedQuizzes.map(q => (
+                        <div key={q.id} className="flex items-center justify-between bg-black/20 p-2 rounded gap-2">
+                            <div className="flex-1 truncate">
+                                <p className="font-bold text-sm text-white">{q.title}</p>
+                                <p className="text-xs text-white/50">{new Date(q.created_at).toLocaleString()}</p>
+                            </div>
+                            <div className="flex gap-2 ml-2 shrink-0">
+                                <button 
+                                    onClick={() => handleLoadQuiz(q.id)} 
+                                    disabled={isLoading}
+                                    className="px-2 py-1 bg-blue-600 rounded text-xs font-bold hover:bg-blue-500 disabled:opacity-50"
+                                >
+                                    {(isLoading && processingQuizId === q.id) ? '...' : 'Carregar'}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-sm text-white/50 text-center py-2">{isLoading ? "Carregando..." : "Nenhum quiz salvo encontrado."}</p>
+            )}
+        </div>
 
         {/* Questions List */}
         <div className="space-y-6">
             {questions.length === 0 && (
                 <div className="text-center py-12 md:py-20 text-white/50 border-2 border-dashed border-white/20 rounded-xl bg-white/5">
                     <p className="text-lg font-bold mb-2">Seu quiz está vazio!</p>
-                    <p className="text-sm">Clique em "Adicionar Pergunta" ou "Gerar com IA".</p>
+                    <p className="text-sm">Clique em "Adicionar Pergunta".</p>
                 </div>
             )}
             
@@ -286,5 +289,6 @@ export const QuizCreator: React.FC<QuizCreatorProps> = ({ onSave, onCancel }) =>
             </button>
         </div>
       </div>
-    );
+    </div>
+  );
 };
