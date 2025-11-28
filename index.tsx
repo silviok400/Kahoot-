@@ -170,14 +170,14 @@ const Background = () => {
 };
 
 // --- From components/Host/QuizCreator.tsx ---
-const SaveQuizModal = ({ quizTitle, onSave, onCancel }) => {
+const SaveQuizModal = ({ quizTitle, onSave, onCancel, onError }) => {
     const [name, setName] = useState(quizTitle);
     const [password, setPassword] = useState('');
 
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!name || !password) {
-            alert("Por favor, preencha o nome e a senha.");
+            onError("Por favor, preencha o nome e a senha.");
             return;
         }
         onSave(name, password);
@@ -215,7 +215,7 @@ const SaveQuizModal = ({ quizTitle, onSave, onCancel }) => {
 };
 
 
-const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz }) => {
+const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotification }) => {
   const [title, setTitle] = useState(initialQuiz?.title || "Meu Quiz Incrível");
   const [questions, setQuestions] = useState(initialQuiz?.questions || []);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -282,7 +282,8 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz }) => {
               onSaveQuiz({ title, questions }, name, password);
               setIsSaveModalOpen(false);
           },
-          onCancel: () => setIsSaveModalOpen(false)
+          onCancel: () => setIsSaveModalOpen(false),
+          onError: (msg) => showNotification(msg, 'error')
       }),
       React.createElement('div', { className: "flex flex-col md:flex-row justify-between items-center p-4 bg-black/20 border-b border-white/10 shrink-0 gap-3" },
         React.createElement('div', { className: "flex items-center gap-4 w-full md:w-auto text-center md:text-left" },
@@ -573,7 +574,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
 };
 
 // --- From components/Player/PlayerView.tsx ---
-const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, nickname, feedback }) => {
+const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, nickname, feedback, showNotification }) => {
   const [inputName, setInputName] = useState("");
   const [pin, setPin] = useState("");
   const [joined, setJoined] = useState(false);
@@ -589,6 +590,8 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
     e.preventDefault();
     if (inputName.trim() && pin) {
       onJoin(inputName, pin);
+    } else {
+        showNotification("Por favor, preencha o PIN e o Apelido.", 'error');
     }
   };
   
@@ -609,7 +612,8 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
     );
   }
 
-  if (feedback && gameState !== GameState.QUESTION && gameState !== GameState.COUNTDOWN) {
+  // Only show full screen feedback during ANSWER_REVEAL state
+  if (feedback && gameState === GameState.ANSWER_REVEAL) {
       const isCorrect = feedback.isCorrect;
       return (
         React.createElement('div', { className: `relative z-20 absolute inset-0 flex flex-col items-center justify-center p-8 ${isCorrect ? 'bg-green-600' : 'bg-red-600'} transition-colors duration-300 min-h-screen animate-zoom-in` },
@@ -682,19 +686,28 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
       );
   }
 
+  // Default / Leaderboard Screen (White Card)
   return (
     React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8" },
         React.createElement('div', { className: "bg-white text-black p-6 rounded-xl shadow-xl w-full max-w-sm" },
             React.createElement('p', { className: "text-gray-500 font-bold uppercase text-sm mb-2" }, "Pontuação Total"),
-            React.createElement('h2', { className: "text-5xl font-black mb-2" }, score),
-            React.createElement('div', { className: 'h-10 flex items-center justify-center mb-4' },
-                feedback && feedback.points > 0 && (
-                    React.createElement('div', {
-                        key: 'points-won',
-                        className: 'text-green-600 font-black text-2xl animate-[bounce_1s_ease-in-out_2]'
-                    }, `+${feedback.points}`)
-                )
+            React.createElement('h2', { className: "text-5xl font-black mb-4" }, score),
+            
+            // Explicit Points Gained Section
+            React.createElement('div', { className: "bg-gray-100 rounded-lg p-3 mb-6 w-full flex flex-col items-center" },
+                 React.createElement('span', { className: "text-xs font-bold text-gray-500 uppercase mb-1" }, "Última Rodada"),
+                 feedback ? (
+                    React.createElement('div', { className: "flex items-center gap-2" },
+                        React.createElement('span', { 
+                            className: `text-3xl font-black ${feedback.isCorrect ? 'text-green-600' : 'text-red-500'} animate-[bounce_0.5s_ease-out]` 
+                        }, feedback.isCorrect ? `+${feedback.points}` : "+0"),
+                        feedback.streak > 1 && React.createElement('span', { className: "text-xs font-bold bg-orange-500 text-white px-2 py-1 rounded-full animate-pulse" }, `🔥 ${feedback.streak}`)
+                    )
+                 ) : (
+                    React.createElement('span', { className: "text-gray-400 font-bold text-xl" }, "-")
+                 )
             ),
+
             React.createElement('div', { className: "bg-black text-white py-3 rounded-lg font-bold text-xl mb-2" }, place > 0 ? `${place}º Lugar` : '-')
         ),
         React.createElement('p', { className: "mt-8 text-white/70 font-bold" }, nickname)
@@ -715,6 +728,25 @@ const calculateScore = (timeLeft, totalTime, streak) => {
     const streakBonus = streak > 1 ? Math.min((streak - 1) * 50, 500) : 0;
 
     return timePoints + streakBonus;
+};
+
+const NotificationModal = ({ message, type, onClose }) => {
+    const isError = type === 'error';
+    const isSuccess = type === 'success';
+
+    return React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[300] flex items-center justify-center p-4 backdrop-blur-sm" },
+        React.createElement('div', { className: "bg-white text-black p-6 rounded-xl shadow-2xl max-w-sm w-full text-center animate-zoom-in" },
+            React.createElement('div', { className: `w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${isError ? 'bg-red-100 text-red-600' : isSuccess ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}` },
+                React.createElement('span', { className: "text-3xl font-black" }, isError ? '!' : isSuccess ? '✓' : 'i')
+            ),
+            React.createElement('h3', { className: "text-xl font-black mb-2" }, isError ? "Atenção" : isSuccess ? "Sucesso" : "Informação"),
+            React.createElement('p', { className: "text-gray-600 font-medium mb-6" }, message),
+            React.createElement('button', { 
+                onClick: onClose, 
+                className: `w-full py-3 rounded-lg font-bold text-white transition-all transform hover:scale-[1.02] ${isError ? 'bg-red-600 hover:bg-red-500' : isSuccess ? 'bg-green-600 hover:bg-green-500' : 'bg-blue-600 hover:bg-blue-500'}` 
+            }, "Entendi")
+        )
+    );
 };
 
 const ConfirmModal = ({ onConfirm, onCancel, text }) => (
@@ -759,7 +791,7 @@ const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass
     );
 };
 
-const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword }) => {
+const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword, showNotification }) => {
     const [savedQuizzes, setSavedQuizzes] = useState([]);
     const [quizToLoad, setQuizToLoad] = useState(null);
     const [quizToDelete, setQuizToDelete] = useState(null);
@@ -780,7 +812,7 @@ const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword }) => {
         if (hash === quizToLoad.passwordHash) {
             onLoad(quizToLoad.quizData);
         } else {
-            alert("Senha incorreta!");
+            showNotification("Senha incorreta!", "error");
         }
         setQuizToLoad(null);
     };
@@ -792,7 +824,7 @@ const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword }) => {
             onDelete(quizToDelete.id);
             setSavedQuizzes(prev => prev.filter(q => q.id !== quizToDelete.id));
         } else {
-            alert("Senha incorreta!");
+            showNotification("Senha incorreta!", "error");
         }
         setQuizToDelete(null);
     };
@@ -861,6 +893,9 @@ const App = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isConfirmingExit, setIsConfirmingExit] = useState(false);
 
+  // Notification State
+  const [notification, setNotification] = useState(null);
+
   const [isMuted, setIsMuted] = useState(false);
   const bgMusicRef = useRef(null);
   const sfxRef = useRef(null);
@@ -881,6 +916,14 @@ const App = () => {
     bgMusicRef.current.volume = 0.3;
     sfxRef.current = new Audio();
   }, []);
+
+  const showNotification = (message, type = 'info') => {
+      setNotification({ message, type });
+  };
+
+  const closeNotification = () => {
+      setNotification(null);
+  };
 
   const playSfx = (url) => {
       if (isMuted || !sfxRef.current) return;
@@ -1156,7 +1199,7 @@ const App = () => {
           }, 1000);
       }
       else if (msg.type === 'GAME_ENDED') {
-        alert("O anfitrião encerrou o jogo.");
+        showNotification("O anfitrião encerrou o jogo.", 'info');
         setMyPlayerId("");
         localStorage.removeItem('kahoot-player-id');
         resetAllState();
@@ -1165,7 +1208,7 @@ const App = () => {
   
   const playerJoin = async (nickname, pinToJoin) => {
       if (!pinToJoin) {
-          alert("Por favor, insira um PIN para entrar no jogo.");
+          showNotification("Por favor, insira um PIN para entrar no jogo.", 'error');
           return;
       }
       
@@ -1183,7 +1226,7 @@ const App = () => {
           }
       } else {
           console.error("Falha ao entrar no jogo.");
-          alert("Falha ao entrar no jogo. O PIN pode estar incorreto ou o jogo não existe.");
+          showNotification("Falha ao entrar no jogo. O PIN pode estar incorreto ou o jogo não existe.", 'error');
       }
   };
 
@@ -1254,7 +1297,7 @@ const App = () => {
 
   const handleSaveQuiz = async (quizData, name, password) => {
       if (!name || !password) {
-          alert("O nome do quiz e a senha são obrigatórios.");
+          showNotification("O nome do quiz e a senha são obrigatórios.", 'error');
           return;
       }
       const passwordHash = await hashPassword(password);
@@ -1268,9 +1311,9 @@ const App = () => {
           const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
           savedQuizzes.push(newQuiz);
           localStorage.setItem('savedQuizzes-2025', JSON.stringify(savedQuizzes));
-          alert(`Quiz "${name}" salvo com sucesso!`);
+          showNotification(`Quiz "${name}" salvo com sucesso!`, 'success');
       } catch (e) {
-          alert("Ocorreu um erro ao salvar o quiz.");
+          showNotification("Ocorreu um erro ao salvar o quiz.", 'error');
       }
   };
 
@@ -1280,7 +1323,7 @@ const App = () => {
           const updatedQuizzes = savedQuizzes.filter(q => q.id !== quizId);
           localStorage.setItem('savedQuizzes-2025', JSON.stringify(updatedQuizzes));
       } catch (e) {
-          alert("Ocorreu um erro ao excluir o quiz.");
+          showNotification("Ocorreu um erro ao excluir o quiz.", 'error');
       }
   };
 
@@ -1302,6 +1345,12 @@ const App = () => {
 
   return (
     React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
+      // Notification Modal
+      notification && React.createElement(NotificationModal, {
+          message: notification.message,
+          type: notification.type,
+          onClose: closeNotification
+      }),
       isConfirmingExit && React.createElement(ConfirmModal, {
           text: appMode === 'HOST' ? "Tem certeza que deseja sair? O jogo será encerrado para todos os jogadores." : "Tem certeza que deseja sair da sala?",
           onConfirm: () => {
@@ -1332,7 +1381,8 @@ const App = () => {
                   onLoad: handleLoadQuiz,
                   onDelete: handleDeleteQuiz,
                   onBack: () => setAppMode('MENU'),
-                  hashPassword: hashPassword
+                  hashPassword: hashPassword,
+                  showNotification: showNotification
               })
           )
       ) : appMode === 'HOST' ? (
@@ -1343,7 +1393,7 @@ const App = () => {
                 React.createElement('button', { onClick: toggleMute, className: "bg-white/20 p-3 rounded-full hover:bg-white/40 transition-colors shadow-lg border border-white/10", title: isMuted ? "Ativar som" : "Mudo" }, isMuted ? '🔇' : '🔊')
              ),
              gameState === GameState.CREATE ? (
-                 React.createElement(QuizCreator, { onSave: startHost, onCancel: handleBackToMenu, onSaveQuiz: handleSaveQuiz, initialQuiz: quiz })
+                 React.createElement(QuizCreator, { onSave: startHost, onCancel: handleBackToMenu, onSaveQuiz: handleSaveQuiz, initialQuiz: quiz, showNotification: showNotification })
              ) : gameState === GameState.LOBBY ? (
                  React.createElement(Lobby, { pin: pin, players: players, onStart: hostStartGame, onCancel: handleBackToMenu })
              ) : (
@@ -1362,7 +1412,8 @@ const App = () => {
                 score: myScore,
                 place: myRank,
                 nickname: myNickname, 
-                feedback: myFeedback
+                feedback: myFeedback,
+                showNotification: showNotification
             })
         )
       )
