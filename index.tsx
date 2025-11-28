@@ -62,20 +62,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     },
 });
 
-const checkGameByPin = async (pin) => {
-    if (!pin) return false;
-    const { data, error } = await supabase
-        .from('games')
-        .select('id')
-        .eq('pin', pin)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-    
-    if (error || !data) return false;
-    return true;
-};
-
 const createGameSession = async (pin, quizTitle) => {
     const { data, error } = await supabase
         .from('games')
@@ -117,16 +103,6 @@ const registerPlayer = async (pin, nickname) => {
     }
 
     return newPlayer;
-};
-
-const updatePlayerNickname = async (playerId, newNickname) => {
-    if (!playerId) return;
-    const { error } = await supabase
-        .from('players')
-        .update({ nickname: newNickname })
-        .eq('id', playerId);
-    
-    if (error) console.error("Erro ao atualizar jogador:", error);
 };
 
 const deletePlayer = async (playerId) => {
@@ -191,8 +167,8 @@ const AVATAR_OPTIONS = {
 const AVATAR_COUNTS = {
     hairStyle: 12,
     clothingStyle: 10,
-    accessory: 12,
-    hat: 13
+    accessory: 10,
+    hat: 11
 };
 
 const Avatar = ({ config, size = "100%" }) => {
@@ -337,8 +313,6 @@ const Avatar = ({ config, size = "100%" }) => {
                 React.createElement('path', { d: "M35 42 Q38 36 41 42 Q44 36 47 42 L41 48 Z", fill: "pink", stroke: "red" }),
                 React.createElement('path', { d: "M53 42 Q56 36 59 42 Q62 36 65 42 L59 48 Z", fill: "pink", stroke: "red" })
             ),
-            accessory === 10 && React.createElement('rect', { x: "38", y: "50", width: "24", height: "15", rx: "3", fill: "#81d4fa", stroke: "white", strokeWidth: "1" }), // Mask
-            accessory === 11 && React.createElement('path', { d: "M40 58 Q50 52 60 58 Q55 62 50 60 Q45 62 40 58", fill: "#333" }), // Mustache
 
             // --- HATS ---
             hat === 1 && React.createElement('g', null, // Cap
@@ -380,22 +354,12 @@ const Avatar = ({ config, size = "100%" }) => {
             hat === 10 && React.createElement('g', null, // Party Hat
                 React.createElement('polygon', { points: "35,35 50,10 65,35", fill: "cyan" }),
                 React.createElement('circle', { cx: "50", cy: "10", r: "3", fill: "orange" })
-            ),
-            hat === 11 && React.createElement('g', null, // Grad Cap
-                React.createElement('polygon', { points: "50,10 80,25 50,40 20,25", fill: "#333" }),
-                React.createElement('rect', { x: "40", y: "30", width: "20", height: "10", fill: "#333" }),
-                React.createElement('line', { x1: "80", y1: "25", x2: "80", y2: "45", stroke: "gold" })
-            ),
-            hat === 12 && React.createElement('g', null, // Santa Hat
-                React.createElement('path', { d: "M30 40 Q50 0 70 40 Z", fill: "red" }),
-                React.createElement('rect', { x: "25", y: "38", width: "50", height: "8", rx: "4", fill: "white" }),
-                React.createElement('circle', { cx: "70", cy: "40", r: "5", fill: "white" })
             )
         )
     );
 };
 
-const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
+const AvatarEditor = ({ initialConfig, onSave }) => {
     const [config, setConfig] = useState(initialConfig || {
         skinColor: AVATAR_OPTIONS.skin[2],
         hairColor: AVATAR_OPTIONS.hair[1],
@@ -412,14 +376,14 @@ const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
         { id: 'skin', label: 'Pele', type: 'color', options: AVATAR_OPTIONS.skin, key: 'skinColor' },
         { id: 'hair', label: 'Cabelo', type: 'style+color', count: AVATAR_COUNTS.hairStyle, colors: AVATAR_OPTIONS.hair, styleKey: 'hairStyle', colorKey: 'hairColor' },
         { id: 'clothing', label: 'Roupa', type: 'style+color', count: AVATAR_COUNTS.clothingStyle, colors: AVATAR_OPTIONS.clothing, styleKey: 'clothingStyle', colorKey: 'clothingColor' },
-        { id: 'accessory', label: 'Acessórios', type: 'style', count: AVATAR_COUNTS.accessory, styleKey: 'accessory' },
+        { id: 'accessory', label: 'Óculos', type: 'style', count: AVATAR_COUNTS.accessory, styleKey: 'accessory' },
         { id: 'hat', label: 'Chapéu', type: 'style', count: AVATAR_COUNTS.hat, styleKey: 'hat' }
     ];
 
     const [activeCategory, setActiveCategory] = useState(categories[0]);
 
     return React.createElement('div', { className: "bg-white text-black p-4 md:p-6 rounded-2xl shadow-2xl w-full max-w-md flex flex-col items-center animate-zoom-in max-h-[90vh]" },
-        React.createElement('h2', { className: "text-2xl font-black mb-4 text-indigo-900" }, mode === 'edit' ? "Editar Avatar" : "Personalize"),
+        React.createElement('h2', { className: "text-2xl font-black mb-4 text-indigo-900" }, "Personalize"),
         
         // Preview
         React.createElement('div', { className: "w-48 h-48 mb-6 border-8 border-indigo-100 rounded-full bg-white shadow-lg shrink-0" },
@@ -440,7 +404,7 @@ const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
         ),
 
         // Controls Area
-        React.createElement('div', { className: "w-full flex-1 overflow-y-auto min-h-[200px] p-1 pr-2" },
+        React.createElement('div', { className: "w-full flex-1 overflow-y-auto min-h-[200px] p-1 custom-scrollbar" },
             
             // Render Color Options if applicable
             (activeCategory.type === 'color' || activeCategory.type === 'style+color') && (
@@ -486,7 +450,7 @@ const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
         React.createElement('button', { 
             onClick: () => onSave(config), 
             className: "w-full mt-4 bg-black text-white py-4 rounded-xl font-black text-xl hover:bg-gray-800 transition-transform hover:scale-[1.02] shadow-xl" 
-        }, mode === 'edit' ? "Salvar Alterações" : "Pronto!")
+        }, "Pronto!")
     );
 };
 
@@ -494,13 +458,11 @@ const AvatarEditor = ({ initialConfig, onSave, mode = 'create' }) => {
 const Background = () => {
   return (
     React.createElement('div', { className: "fixed inset-0 overflow-hidden pointer-events-none z-0" },
-      React.createElement('div', { className: "absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-purple-800" },
-        React.createElement('div', { className: "absolute inset-0 bg-black/20" })
-      ),
+      React.createElement('div', { className: "absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-purple-800" }),
       [...Array(10)].map((_, i) => (
         React.createElement('div', {
           key: i,
-          className: "shape-bg bg-white/5 rounded-lg absolute backdrop-blur-sm",
+          className: "shape-bg bg-white/10 rounded-lg absolute",
           style: {
             width: `${Math.random() * 100 + 50}px`,
             height: `${Math.random() * 100 + 50}px`,
@@ -569,11 +531,11 @@ const CustomDropdown = ({ options, value, onChange, label }) => {
 
 // --- Joystick Component for Bonus Game ---
 const VirtualJoystick = ({ onMove }) => {
-    // ... (Same as before)
     const joystickRef = useRef(null);
     const knobRef = useRef(null);
     const [isActive, setIsActive] = useState(false);
     const lastSendTime = useRef(0);
+    const animationFrameId = useRef(null);
     
     // We use refs for position to avoid React render cycles slowing down the drag
     const position = useRef({ x: 0, y: 0 });
@@ -591,6 +553,7 @@ const VirtualJoystick = ({ onMove }) => {
 
         const handleMove = (e) => {
             if (!isActive && !e.type.startsWith('touch')) return; // For mouse, only move if active
+            // For touch, if we are here, it's active because we bound the listener
             if (e.cancelable) e.preventDefault();
             updatePosition(e);
         };
@@ -629,7 +592,7 @@ const VirtualJoystick = ({ onMove }) => {
                 dy = Math.sin(angle) * maxRadius;
             }
 
-            // Visual Update
+            // Visual Update (Direct DOM manipulation for performance)
             if (knobRef.current) {
                 knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
             }
@@ -648,8 +611,13 @@ const VirtualJoystick = ({ onMove }) => {
         joystick.addEventListener('touchstart', handleStart, { passive: false });
         joystick.addEventListener('mousedown', handleStart);
         
-        const handleWindowMove = (e) => { if (isActive) handleMove(e); };
-        const handleWindowEnd = (e) => { if (isActive) handleEnd(e); };
+        // Window listeners for move/end to capture dragging outside element
+        const handleWindowMove = (e) => {
+            if (isActive) handleMove(e);
+        };
+        const handleWindowEnd = (e) => {
+            if (isActive) handleEnd(e);
+        };
 
         window.addEventListener('touchmove', handleWindowMove, { passive: false });
         window.addEventListener('touchend', handleWindowEnd);
@@ -664,7 +632,7 @@ const VirtualJoystick = ({ onMove }) => {
             window.removeEventListener('mousemove', handleWindowMove);
             window.removeEventListener('mouseup', handleWindowEnd);
         };
-    }, [isActive, onMove]);
+    }, [isActive, onMove]); // Re-bind if isActive changes (simple state machine)
 
     return (
         React.createElement('div', { 
@@ -688,7 +656,6 @@ const VirtualJoystick = ({ onMove }) => {
 
 // --- Bonus Game Host Component ---
 const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
-    // ... (Same as before)
     const [timeLeft, setTimeLeft] = useState(30);
     const [gameItems, setGameItems] = useState([]);
     const [playerPositions, setPlayerPositions] = useState({});
@@ -721,7 +688,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             };
         });
         setPlayerPositions(initialPos);
-    }, []);
+    }, []); // Run once on mount
 
     useEffect(() => {
         window.updatePlayerVelocity = (playerId, vec) => {
@@ -738,8 +705,9 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
 
     const animate = () => {
         const now = Date.now();
-        const deltaTime = (now - startTimeRef.current) / 1000;
+        const deltaTime = (now - startTimeRef.current) / 1000; // seconds
         
+        // 1. Update Timer
         if (Math.floor(deltaTime) > (30 - timeLeft)) {
             setTimeLeft(prev => {
                 if (prev <= 1) {
@@ -750,11 +718,12 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             });
         }
 
-        if (now - lastItemSpawn.current > 800) { 
+        // 2. Spawn Items (Balls: 70%, Coins: 20%, Bombs: 10%)
+        if (now - lastItemSpawn.current > 800) { // Every 800ms
             const typeRoll = Math.random();
             let type = 'ball';
             let value = 50;
-            let size = 4;
+            let size = 4; // vw
 
             if (typeRoll > 0.9) { type = 'bomb'; value = -100; size = 5; }
             else if (typeRoll > 0.7) { type = 'coin'; value = 200; size = 4; }
@@ -770,22 +739,26 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
             lastItemSpawn.current = now;
         }
 
+        // 3. Update Physics & Collision
         setPlayerPositions(prevPos => {
             const nextPos = { ...prevPos };
-            const speed = 0.6;
-            const radius = playerSizeVw / 2;
+            const speed = 0.6; // slightly faster speed per frame
+            const radius = playerSizeVw / 2; // Radius in VW (approximation)
             
+            // Move players
             Object.keys(nextPos).forEach(pid => {
                 const p = nextPos[pid];
                 let nx = p.x + (p.vx * speed);
                 let ny = p.y + (p.vy * speed);
                 
+                // Boundaries (keep entire ball inside)
                 nx = Math.max(radius, Math.min(100 - radius, nx));
                 ny = Math.max(radius, Math.min(100 - radius, ny));
                 
                 nextPos[pid] = { ...p, x: nx, y: ny };
             });
 
+            // Check Collisions
             setGameItems(prevItems => {
                 const survivingItems = [];
                 const scoresToUpdate = {};
@@ -808,7 +781,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                     });
 
                     if (!collected) {
-                        if (now - item.id > 10000) return; 
+                        if (now - item.id > 10000) return; // 10s lifetime
                         survivingItems.push(item);
                     }
                 });
@@ -835,16 +808,19 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
 
     return (
         React.createElement('div', { className: "relative w-full h-full bg-slate-900 overflow-hidden select-none" },
+            // HUD
             React.createElement('div', { className: "absolute top-4 left-0 w-full flex justify-center z-50 pointer-events-none" },
                 React.createElement('div', { className: "bg-white/20 backdrop-blur-md px-8 py-2 rounded-full border border-white/30 shadow-2xl" },
                     React.createElement('span', { className: "text-4xl font-black text-white drop-shadow-md" }, `Tempo: ${timeLeft}s`)
                 )
             ),
             
+            // Grid Lines for effect
             React.createElement('div', { className: "absolute inset-0 opacity-20", 
                 style: { backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '50px 50px' } 
             }),
 
+            // Items
             gameItems.map(item => (
                 React.createElement('div', { 
                     key: item.id,
@@ -869,6 +845,7 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
                 )
             )),
 
+            // Players
             Object.keys(playerPositions).map(pid => {
                 const p = playerPositions[pid];
                 const playerInfo = players.find(pl => pl.id === pid);
@@ -899,10 +876,8 @@ const BonusGameHost = ({ players, onUpdateScores, onEndGame }) => {
     );
 };
 
-// ... (Rest of QuizCreator, Lobby, HostGame remain similar but included in full file if needed, keeping them as is)
 // --- From components/Host/QuizCreator.tsx ---
 const SaveQuizModal = ({ quizTitle, onSave, onCancel, onError }) => {
-    // ... (Same)
     const [name, setName] = useState(quizTitle);
     const [password, setPassword] = useState('');
 
@@ -948,7 +923,6 @@ const SaveQuizModal = ({ quizTitle, onSave, onCancel, onError }) => {
 
 
 const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotification }) => {
-  // ... (Same content, omitted for brevity, logic unchanged)
   const [title, setTitle] = useState(initialQuiz?.title || "Meu Quiz Incrível");
   const [questions, setQuestions] = useState(initialQuiz?.questions || []);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -996,9 +970,18 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
         reader.readAsDataURL(file);
     }
   };
-  
-  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
-  const handleDrop = (e, qIndex) => { e.preventDefault(); e.stopPropagation(); const file = e.dataTransfer.files[0]; handleFileSelect(qIndex, file); };
+
+  const handleDragOver = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+  };
+
+  const handleDrop = (e, qIndex) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const file = e.dataTransfer.files[0];
+      handleFileSelect(qIndex, file);
+  };
 
   const timeOptions = [
     { value: 5, label: "5 segundos" },
@@ -1127,12 +1110,13 @@ const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz, showNotificati
 
 // --- From components/Host/Lobby.tsx ---
 const QRCodeView = ({ url, size }) => {
-    // ... (Same)
     const ref = useRef(null);
 
     useEffect(() => {
         if (!ref.current) return;
-        ref.current.innerHTML = '';
+
+        ref.current.innerHTML = ''; // Clear previous QR code
+
         const qrCode = new QRCodeStyling({
             width: size,
             height: size,
@@ -1143,6 +1127,7 @@ const QRCodeView = ({ url, size }) => {
             backgroundOptions: { color: "#ffffff" },
             imageOptions: { crossOrigin: "anonymous", margin: 10 }
         });
+        
         qrCode.append(ref.current);
     }, [url, size]);
 
@@ -1212,7 +1197,6 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
 
 // --- From components/Host/HostGame.tsx ---
 const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext, onEndGame, onStartBonusGame, onUpdateScores }) => {
-  // ... (Same, omitted for brevity)
   const question = quiz.questions[currentQuestionIndex];
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
@@ -1233,7 +1217,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
           return React.createElement(BonusGameHost, { 
               players: players,
               onUpdateScores: onUpdateScores,
-              onEndGame: onNext 
+              onEndGame: onNext // When time up, go to Leaderboard (or next state)
           });
 
       case GameState.ANSWER_REVEAL:
@@ -1303,13 +1287,16 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
         
         return React.createElement('div', { key: `question-${currentQuestionIndex}`, className: "animate-fade-in flex flex-col h-full p-4 w-full" },
           React.createElement('div', { className: "flex justify-end items-center mb-4 gap-4" },
+            // Question Counter
             React.createElement('div', { className: "bg-white/90 backdrop-blur text-indigo-900 font-black px-6 py-2 rounded-full text-xl shadow-lg border-2 border-indigo-900/10" }, 
                 `Questão ${currentQuestionIndex + 1} / ${quiz.questions.length}`
             ),
+            // Answers Counter
             React.createElement('div', { className: "bg-indigo-600 text-white font-bold px-6 py-2 rounded-full text-xl shadow-lg border-2 border-white/20 flex items-center gap-2" },
                 React.createElement('span', { className: "text-2xl" }, "📥"),
                 React.createElement('span', null, `Respostas: ${answeredCount}`)
             ),
+            // Timer
             React.createElement('div', { className: "w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center border-4 border-white shadow-xl relative z-10" },
               React.createElement('span', { className: "text-4xl font-black" }, timeLeft)
             )
@@ -1342,13 +1329,12 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
 };
 
 // --- From components/Player/PlayerView.tsx ---
-const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameState, hasAnswered, score, place, nickname, feedback, showNotification, currentAvatar }) => {
+const PlayerView = ({ onJoin, onSubmit, onJoystickMove, gameState, hasAnswered, score, place, nickname, feedback, showNotification }) => {
   const [step, setStep] = useState('LOGIN'); // LOGIN, AVATAR, LOBBY
-  const [isEditingAvatar, setIsEditingAvatar] = useState(false);
   const [inputName, setInputName] = useState("");
   const [pin, setPin] = useState("");
-  const [isCheckingPin, setIsCheckingPin] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [avatarConfig, setAvatarConfig] = useState(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -1360,41 +1346,19 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
     }
   }, [nickname]);
 
-  // If game starts, force exit from Avatar Editor
-  useEffect(() => {
-      if (gameState !== GameState.LOBBY) {
-          setIsEditingAvatar(false);
-      }
-  }, [gameState]);
-
-  const handleLoginSubmit = async (e) => {
+  const handleLoginSubmit = (e) => {
     e.preventDefault();
-    if (!inputName.trim() || !pin) {
-        showNotification("Por favor, preencha o PIN e o Apelido.", 'error');
-        return;
-    }
-    
-    setIsCheckingPin(true);
-    const exists = await checkGameByPin(pin);
-    setIsCheckingPin(false);
-    
-    if (exists) {
+    if (inputName.trim() && pin) {
         setStep('AVATAR');
     } else {
-        showNotification("PIN inválido. Nenhuma sala encontrada.", 'error');
+        showNotification("Por favor, preencha o PIN e o Apelido.", 'error');
     }
   };
 
   const handleAvatarSave = (config) => {
-      if (joined && isEditingAvatar) {
-          // Re-edit inside lobby
-          onUpdateAvatar(config);
-          setIsEditingAvatar(false);
-      } else {
-          // Initial join
-          onJoin(inputName, pin, config);
-          setStep('LOBBY'); // Optimistic update
-      }
+      setAvatarConfig(config);
+      // Join game
+      onJoin(inputName, pin, config);
   };
   
   const getOrdinal = (n) => "º";
@@ -1407,28 +1371,17 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
             React.createElement('form', { onSubmit: handleLoginSubmit },
               React.createElement('input', { type: "text", placeholder: "PIN do Jogo", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-4 text-center font-bold text-xl text-white placeholder-gray-400", value: pin, onChange: e => setPin(e.target.value) }),
               React.createElement('input', { type: "text", placeholder: "Apelido", className: "w-full p-3 bg-gray-800 border-2 border-gray-700 rounded mb-6 text-center font-bold text-xl text-white placeholder-gray-400", value: inputName, onChange: e => setInputName(e.target.value) }),
-              React.createElement('button', { 
-                  type: "submit", 
-                  disabled: isCheckingPin,
-                  className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors disabled:opacity-50" 
-              }, isCheckingPin ? "Verificando..." : "Próximo")
+              React.createElement('button', { type: "submit", className: "w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors" }, "Próximo")
             )
         )
       )
     );
   }
 
-  // Show Avatar Editor if:
-  // 1. We passed login but haven't joined yet (Initial creation)
-  // 2. We joined, are in LOBBY, and clicked "Edit"
-  if ((step === 'AVATAR' && !joined) || (joined && isEditingAvatar)) {
+  if (step === 'AVATAR' && !joined) {
       return (
           React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen p-4" },
-              React.createElement(AvatarEditor, { 
-                  initialConfig: currentAvatar,
-                  onSave: handleAvatarSave,
-                  mode: joined ? 'edit' : 'create'
-              })
+              React.createElement(AvatarEditor, { onSave: handleAvatarSave })
           )
       );
   }
@@ -1444,7 +1397,6 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
 
   // Only show full screen feedback during ANSWER_REVEAL state
   if (feedback && gameState === GameState.ANSWER_REVEAL) {
-      // ... (Same Feedback View)
       const isCorrect = feedback.isCorrect;
       return (
         React.createElement('div', { className: `relative z-20 absolute inset-0 flex flex-col items-center justify-center p-8 ${isCorrect ? 'bg-green-600' : 'bg-red-600'} transition-colors duration-300 min-h-screen animate-zoom-in` },
@@ -1473,17 +1425,9 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
       return (
         React.createElement('div', { className: "relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8" },
             React.createElement('h2', { className: "text-3xl font-bold mb-4" }, "Você entrou!"),
-            currentAvatar && (
-                React.createElement('div', { className: "relative group w-40 h-40 mb-6 mx-auto" }, 
-                    React.createElement(Avatar, { config: currentAvatar }),
-                    React.createElement('button', {
-                        onClick: () => setIsEditingAvatar(true),
-                        className: "absolute bottom-0 right-0 bg-white text-indigo-900 p-2 rounded-full shadow-lg border-2 border-indigo-100 hover:scale-110 transition-transform font-bold text-xl w-10 h-10 flex items-center justify-center"
-                    }, "✏️")
-                )
-            ),
-            React.createElement('div', { className: "mt-4 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse" }, nickname),
-            React.createElement('p', { className: "text-lg mt-4 opacity-80" }, "Aguarde o início do jogo...")
+            avatarConfig && React.createElement('div', { className: "w-32 h-32 mb-4 mx-auto" }, React.createElement(Avatar, { config: avatarConfig })),
+            React.createElement('p', { className: "text-xl" }, "Veja seu nome na tela?"),
+            React.createElement('div', { className: "mt-4 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse" }, nickname)
         )
       )
   }
@@ -1551,7 +1495,7 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
             React.createElement('div', { className: "bg-black text-white py-3 px-6 rounded-lg font-bold text-xl mb-2 w-full" }, place > 0 ? `${place}º Lugar` : '-')
         ),
         React.createElement('div', { className: "mt-8 flex flex-col items-center" },
-            currentAvatar && React.createElement('div', { className: "w-20 h-20 mb-2" }, React.createElement(Avatar, { config: currentAvatar })),
+            avatarConfig && React.createElement('div', { className: "w-20 h-20 mb-2" }, React.createElement(Avatar, { config: avatarConfig })),
             React.createElement('p', { className: "text-white/70 font-bold text-xl" }, nickname)
         )
     )
@@ -1562,15 +1506,18 @@ const PlayerView = ({ onJoin, onUpdateAvatar, onSubmit, onJoystickMove, gameStat
 const CHANNEL_NAME = 'kahoot-clone-2025';
 
 const calculateScore = (timeLeft, totalTime, streak, maxPoints) => {
-    // ... (Same)
+    // Pontos por velocidade: até maxPoints pontos.
+    // Quanto mais rápida a resposta, mais próximo de maxPoints.
     const timePoints = Math.round(maxPoints * (timeLeft / totalTime));
+
+    // Bônus por sequência de respostas, começando da 2ª resposta correta consecutiva.
+    // +50 para 2, +100 para 3, até um máximo de +500.
     const streakBonus = streak > 1 ? Math.min((streak - 1) * 50, 500) : 0;
+
     return timePoints + streakBonus;
 };
 
-// ... (Modals omitted for brevity, logic unchanged)
 const NotificationModal = ({ message, type, onClose }) => {
-    // ...
     const isError = type === 'error';
     const isSuccess = type === 'success';
 
@@ -1603,7 +1550,6 @@ const ConfirmModal = ({ onConfirm, onCancel, text }) => (
 );
 
 const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass }) => {
-    // ...
     const [password, setPassword] = useState('');
 
     const handleSubmit = (e) => {
@@ -1633,7 +1579,6 @@ const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass
 };
 
 const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword, showNotification }) => {
-    // ... (Same)
     const [savedQuizzes, setSavedQuizzes] = useState([]);
     const [quizToLoad, setQuizToLoad] = useState(null);
     const [quizToDelete, setQuizToDelete] = useState(null);
@@ -1866,15 +1811,12 @@ const App = () => {
 
   useEffect(() => {
     if (appMode === 'HOST' && players.length > 0) {
-        // Broadcast local sanitized state (which contains avatar objects)
-        // Wait, we need to broadcast FULL player data so new players can see existing avatars
-        // But local state is sanitized... 
-        // We will just broadcast what we have. The parsePlayer function handles already parsed objects gracefully?
-        // Actually, sanitization splits the string. If we broadcast the object, other clients need to handle object or string.
-        // Let's ensure consistency: 
-        // When JOIN happens, we parse string -> object. State stores object.
-        // broadcast UPDATE_PLAYERS sends array of objects.
-        // Receiver of UPDATE_PLAYERS sees objects. parsePlayer checks if nickname includes |||. If object, it returns it.
+        // We broadcast RAW players (with JSON in nickname if present) to persist in other clients, 
+        // but locally we display sanitized.
+        // Wait, 'players' state in this component should probably hold SANITIZED data for display,
+        // but when we sync, we might lose the avatar if we stripped it?
+        // Let's store SANITIZED in state, but when we JOIN, we kept the avatar property.
+        // broadcast sends what is in state.
         broadcast({ type: 'UPDATE_PLAYERS', payload: players });
     }
   }, [players, appMode]);
@@ -1899,6 +1841,20 @@ const App = () => {
         setPlayers(prev => {
             if (prev.find(p => p.id === msg.payload.id)) return prev;
             playSfx(AUDIO.CORRECT);
+            
+            // Parse incoming join data
+            const rawNick = msg.payload.nickname;
+            let realNick = rawNick;
+            let avatar = null;
+            if (rawNick.includes('|||')) {
+                try {
+                    const parts = rawNick.split('|||');
+                    realNick = parts[0];
+                    avatar = JSON.parse(parts[1]);
+                } catch(e) {}
+            }
+            
+            // Or use the helper if we pass the whole object
             const parsedObj = parsePlayer(msg.payload);
 
             return [...prev, { 
@@ -1910,17 +1866,6 @@ const App = () => {
                 lastAnswerShape: null 
             }];
         });
-    } else if (msg.type === 'UPDATE_AVATAR') {
-        // Handle avatar update from existing player
-        setPlayers(prev => {
-            return prev.map(p => {
-                if (p.id === msg.payload.id) {
-                    const parsedObj = parsePlayer(msg.payload);
-                    return { ...p, avatar: parsedObj.avatar };
-                }
-                return p;
-            });
-        });
     } else if (msg.type === 'LEAVE') {
         setPlayers(prev => prev.filter(p => p.id !== msg.payload.playerId));
     } else if (msg.type === 'REQUEST_STATE') {
@@ -1929,6 +1874,7 @@ const App = () => {
             broadcast({ type: 'UPDATE_PLAYERS', payload: playersRef.current });
         }
     } else if (msg.type === 'PLAYER_INPUT') {
+        // High frequency input - do not trigger react state re-renders if possible for performance
         if (window.updatePlayerVelocity) {
             window.updatePlayerVelocity(msg.payload.id, msg.payload.vector);
         }
@@ -1940,6 +1886,7 @@ const App = () => {
             if (playerIndex === -1) return prev;
             
             const player = prev[playerIndex];
+            // Use refs to get current question index safely inside callback
             const currentQ = quizRef.current?.questions[qIndexRef.current];
             
             if (!currentQ) return prev;
@@ -1948,7 +1895,7 @@ const App = () => {
             const isCorrect = currentQ.answers.find(a => a.shape === answerShape)?.isCorrect || false;
             
             const currentStreak = isCorrect ? player.streak + 1 : 0;
-            const maxPoints = currentQ.points || 100;
+            const maxPoints = currentQ.points || 100; // Default to 100 if not set, as requested
             const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak, maxPoints) : 0;
 
             broadcast({ 
@@ -1978,14 +1925,16 @@ const App = () => {
       hostStartCountdown(0);
   };
 
-  // ... (hostStartCountdown, hostStartQuestion, etc. same as previous, logic unchanged)
   const hostStartCountdown = (indexOverride) => {
       const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
+      
       playSfx(AUDIO.COUNTDOWN);
       setGameState(GameState.COUNTDOWN);
       setTimeLeft(5);
+      // Reset player answers for the new question
       setPlayers(prev => prev.map(p => ({ ...p, lastAnswerShape: null })));
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
+      
       let count = 5;
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
@@ -1997,13 +1946,17 @@ const App = () => {
           }
       }, 1000);
   };
+
   const hostStartQuestion = (indexOverride) => {
       const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
+
       setGameState(GameState.QUESTION);
+      // Use quizRef.current to avoid stale closure on 'quiz'
       const q = quizRef.current.questions[activeIndex];
       setTimeLeft(q.timeLimit);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.QUESTION, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
       broadcast({ type: 'QUESTION_START', payload: { questionIndex: activeIndex, timeLimit: q.timeLimit } });
+
       let count = q.timeLimit;
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
@@ -2015,20 +1968,25 @@ const App = () => {
           }
       }, 1000);
   };
+  
   const hostShowAnswerReveal = () => {
       playSfx(AUDIO.TIME_UP);
       setGameState(GameState.ANSWER_REVEAL);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.ANSWER_REVEAL, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
   };
+
   const hostShowLeaderboard = () => {
       setGameState(GameState.LEADERBOARD);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
   };
+  
   const hostStartBonusGame = () => {
       setGameState(GameState.MINIGAME);
       broadcast({ type: 'SYNC_STATE', payload: { state: GameState.MINIGAME, pin } });
   };
+
   const hostUpdateBonusScores = (scoreUpdates) => {
+      // scoreUpdates: { playerId: pointsAdded }
       playSfx(AUDIO.COLLECT);
       setPlayers(prev => {
           return prev.map(p => {
@@ -2039,6 +1997,7 @@ const App = () => {
           });
       });
   };
+
   const hostNextQuestion = () => {
       if (currentQIndex + 1 >= quiz.questions.length) {
           setGameState(GameState.PODIUM);
@@ -2049,6 +2008,7 @@ const App = () => {
           hostStartCountdown(nextIndex);
       }
   };
+  
   const handleNextFromHostGame = () => {
     if (gameState === GameState.ANSWER_REVEAL || gameState === GameState.MINIGAME) {
         hostShowLeaderboard();
@@ -2127,8 +2087,12 @@ const App = () => {
   };
   
   const playerJoin = async (nickname, pinToJoin, avatarConfig) => {
-      if (!pinToJoin) return;
+      if (!pinToJoin) {
+          showNotification("Por favor, insira um PIN para entrar no jogo.", 'error');
+          return;
+      }
       
+      // Persist avatar by appending it to the nickname string before sending to DB
       const encodedNickname = avatarConfig 
         ? `${nickname}|||${JSON.stringify(avatarConfig)}`
         : nickname;
@@ -2153,18 +2117,9 @@ const App = () => {
             }
           }
       } else {
-          showNotification("Falha ao entrar no jogo.", 'error');
+          console.error("Falha ao entrar no jogo.");
+          showNotification("Falha ao entrar no jogo. O PIN pode estar incorreto ou o jogo não existe.", 'error');
       }
-  };
-
-  const playerUpdateAvatar = async (config) => {
-      if (!myPlayerId) return;
-      const myPlayer = players.find(p => p.id === myPlayerId);
-      const nickname = myPlayer ? myPlayer.nickname : "";
-      const encodedNickname = `${nickname}|||${JSON.stringify(config)}`;
-
-      await updatePlayerNickname(myPlayerId, encodedNickname);
-      broadcast({ type: 'UPDATE_AVATAR', payload: { id: myPlayerId, nickname: encodedNickname } });
   };
 
   const playerSubmit = (shape) => {
@@ -2174,11 +2129,11 @@ const App = () => {
       broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeftRef.current } }); 
   };
   
+  // Stable callback using Refs to avoid re-creation on every render
   const playerJoystickMove = useCallback((vector) => {
       broadcast({ type: 'PLAYER_INPUT', payload: { id: myPlayerIdRef.current, vector }});
   }, []);
   
-  // ... (resetAllState, executeBackToMenu, handleBackToMenu, etc. unchanged)
   const resetAllState = () => {
     setAppMode('MENU');
     setGameState(GameState.MENU);
@@ -2202,6 +2157,7 @@ const App = () => {
         }
     }
   };
+
   const executeBackToMenu = () => {
     if (appMode === 'PLAYER' && myPlayerId) {
         broadcast({ type: 'LEAVE', payload: { playerId: myPlayerId } });
@@ -2209,23 +2165,28 @@ const App = () => {
         localStorage.removeItem('kahoot-player-id');
         setMyPlayerId("");
     }
+    
     if (appMode === 'HOST') {
         broadcast({ type: 'GAME_ENDED' });
         deleteGameSessionByPin(pin);
     }
+
     resetAllState();
   };
+
   const handleBackToMenu = () => {
     if (appMode === 'MENU' || isConfirmingExit) return;
     setIsConfirmingExit(true);
   };
+
   const shouldShowBackButton = () => {
     if (appMode === 'MENU' || appMode === 'LOADER') return false;
     if (appMode === 'HOST' && (gameState === GameState.CREATE || gameState === GameState.LOBBY)) {
-        return false;
+        return false; // No back button in creator or host lobby
     }
     return true;
   };
+  
   const hashPassword = async (password) => {
       const encoder = new TextEncoder();
       const data = encoder.encode(password);
@@ -2234,6 +2195,7 @@ const App = () => {
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
       return hashHex;
   };
+
   const handleSaveQuiz = async (quizData, name, password) => {
       if (!name || !password) {
           showNotification("O nome do quiz e a senha são obrigatórios.", 'error');
@@ -2255,6 +2217,7 @@ const App = () => {
           showNotification("Ocorreu um erro ao salvar o quiz.", 'error');
       }
   };
+
   const handleDeleteQuiz = (quizId) => {
       try {
           const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
@@ -2264,11 +2227,13 @@ const App = () => {
           showNotification("Ocorreu um erro ao excluir o quiz.", 'error');
       }
   };
+
   const handleLoadQuiz = (quizData) => {
       setQuiz(quizData);
       setAppMode('HOST');
       setGameState(GameState.CREATE);
   };
+
   const BackButton = () => (
     React.createElement('button', { onClick: handleBackToMenu, className: "absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" },
         React.createElement('span', null, "←"), " Voltar"
@@ -2277,11 +2242,11 @@ const App = () => {
 
   const myPlayer = players.find(p => p.id === myPlayerId);
   const myNickname = myPlayer ? myPlayer.nickname : "";
-  const myAvatar = myPlayer ? myPlayer.avatar : null;
   const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
 
   return (
     React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
+      // Notification Modal
       notification && React.createElement(NotificationModal, {
           message: notification.message,
           type: notification.type,
@@ -2352,7 +2317,6 @@ const App = () => {
             shouldShowBackButton() && React.createElement(BackButton, null),
             React.createElement(PlayerView, { 
                 onJoin: playerJoin, 
-                onUpdateAvatar: playerUpdateAvatar,
                 onSubmit: playerSubmit,
                 onJoystickMove: playerJoystickMove,
                 gameState: gameState, 
@@ -2360,7 +2324,6 @@ const App = () => {
                 score: myScore,
                 place: myRank,
                 nickname: myNickname, 
-                currentAvatar: myAvatar,
                 feedback: myFeedback,
                 showNotification: showNotification
             })

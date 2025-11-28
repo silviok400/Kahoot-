@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -13,23 +14,14 @@
         color: white;
         overflow: hidden;
       }
-      
-      /* Better scrollbar styling for customization menus */
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
+      /* Hide all scrollbars */
+      * {
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
       }
-      ::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.1);
+      *::-webkit-scrollbar {
+        display: none; /* Chrome, Safari, Opera */
       }
-      ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.3);
-        border-radius: 10px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.5);
-      }
-
       .shape-bg {
         position: absolute;
         opacity: 0.1;
@@ -74,11 +66,12 @@
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
     "qr-code-styling": "https://esm.sh/qr-code-styling@1.6.0-rc.1",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3"
   }
 }
 </script>
