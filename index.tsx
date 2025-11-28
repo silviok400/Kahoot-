@@ -780,7 +780,7 @@ const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword }) => {
                     React.createElement('p', { className: "text-sm text-white/60" }, "Crie e salve um quiz para vê-lo aqui.")
                 )
             ) : (
-                React.createElement('div', { className: "flex-1 overflow-y-auto space-y-3 pr-2" },
+                React.createElement('div', { className: "flex-1 overflow-y-auto space-y-3" },
                     savedQuizzes.map(quiz => (
                         React.createElement('div', {
                             key: quiz.id,
