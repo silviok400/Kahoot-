@@ -7,15 +7,22 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Kahoot! Clone 2025</title>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Babel for in-browser compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
     <style>
       body {
         font-family: 'Poppins', sans-serif;
         background-color: #46178f;
         color: white;
         overflow: hidden;
-        /* Prevent bounce on iOS */
         overscroll-behavior-y: none;
       }
       .shape-bg {
@@ -28,42 +35,733 @@
         0% { transform: translateY(0) rotate(0deg); }
         100% { transform: translateY(-100vh) rotate(360deg); }
       }
-      /* Custom Animations */
       @keyframes slide-up {
         from { transform: translateY(100%); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
       }
       .animate-slide-up { animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
       
-      /* Scrollbar hiding for clean UI */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.1); 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2); 
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.4); 
-      }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.1); }
+      ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
     </style>
-  <script type="importmap">
+
+    <!-- Import Map: Cleaned up to avoid React version conflicts -->
+    <script type="importmap">
 {
   "imports": {
-    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client",
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "qr-code-styling": "https://esm.sh/qr-code-styling@1.6.0-rc.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "qr-code-styling": "https://esm.sh/qr-code-styling@1.6.0-rc.1"
+    "react/": "https://aistudiocdn.com/react@^19.2.0/"
   }
 }
 </script>
-</head>
+  </head>
   <body>
     <div id="root"></div>
+
+    <!-- MAIN APPLICATION SCRIPT -->
+    <script type="text/babel" data-type="module" data-presets="typescript,react">
+      import React, { useState, useEffect, useRef } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import QRCodeStyling from 'qr-code-styling';
+
+      /**
+       * ==========================================
+       * TYPES & CONSTANTS
+       * ==========================================
+       */
+      
+      // Converted enums to const objects to avoid ReferenceError in Babel Standalone
+      const GameState = {
+        MENU: 'MENU',
+        CREATE: 'CREATE',
+        LOBBY: 'LOBBY',
+        COUNTDOWN: 'COUNTDOWN',
+        QUESTION: 'QUESTION',
+        LEADERBOARD: 'LEADERBOARD',
+        PODIUM: 'PODIUM',
+      };
+
+      const Shape = {
+        TRIANGLE: 'triangle', 
+        DIAMOND: 'diamond',
+        CIRCLE: 'circle',
+        SQUARE: 'square'
+      };
+
+      // Sound Effects
+      const AUDIO = {
+        LOBBY_MUSIC: 'https://cdn.pixabay.com/audio/2022/03/10/audio_5b80a18413.mp3',
+        COUNTDOWN: 'https://cdn.pixabay.com/audio/2022/03/15/audio_2738a08711.mp3',
+        CORRECT: 'https://cdn.pixabay.com/audio/2021/08/04/audio_0625c153e2.mp3',
+        WRONG: 'https://cdn.pixabay.com/audio/2021/08/04/audio_c6ccf3232f.mp3',
+        TIME_UP: 'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
+      };
+
+      // UI Constants
+      const COLORS = {
+        [Shape.TRIANGLE]: 'bg-red-600 hover:bg-red-500',
+        [Shape.DIAMOND]: 'bg-blue-600 hover:bg-blue-500',
+        [Shape.CIRCLE]: 'bg-yellow-500 hover:bg-yellow-400',
+        [Shape.SQUARE]: 'bg-green-600 hover:bg-green-500',
+      };
+
+      const SHAPE_ICONS = {
+        [Shape.TRIANGLE]: '▲',
+        [Shape.DIAMOND]: '◆',
+        [Shape.CIRCLE]: '●',
+        [Shape.SQUARE]: '■',
+      };
+
+      /**
+       * ==========================================
+       * COMPONENTS
+       * ==========================================
+       */
+
+      // --- Background Component ---
+      const Background = () => (
+        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+          <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-900 to-purple-800" />
+          {[...Array(10)].map((_, i) => (
+            <div
+              key={i}
+              className="shape-bg bg-white/10 rounded-lg absolute"
+              style={{
+                width: `${Math.random() * 100 + 50}px`,
+                height: `${Math.random() * 100 + 50}px`,
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100 + 100}%`,
+                animationDelay: `${Math.random() * 5}s`,
+                animationDuration: `${Math.random() * 10 + 15}s`,
+              }}
+            />
+          ))}
+        </div>
+      );
+
+      // --- QRCode Component ---
+      const QRCodeView = ({ url, size }) => {
+        const ref = useRef(null);
+        const qrCode = useRef(null);
+
+        useEffect(() => {
+            if (!url) return;
+            qrCode.current = new QRCodeStyling({
+                width: size,
+                height: size,
+                type: 'svg',
+                data: url,
+                dotsOptions: { color: "#000000", type: "rounded" },
+                cornersSquareOptions: { type: "extra-rounded" },
+                backgroundOptions: { color: "#ffffff" },
+                imageOptions: { crossOrigin: "anonymous", margin: 10 }
+            });
+            if (ref.current) {
+                ref.current.innerHTML = '';
+                qrCode.current.append(ref.current);
+            }
+        }, [size]);
+
+        useEffect(() => {
+            qrCode.current?.update({ data: url });
+        }, [url]);
+
+        return <div ref={ref} className="overflow-hidden rounded-lg bg-white" />;
+      };
+
+      // --- Quiz Creator Component ---
+      const QuizCreator = ({ onSave, onCancel }) => {
+        const [title, setTitle] = useState("Meu Quiz Incrível");
+        const [questions, setQuestions] = useState([]);
+
+        const addEmptyQuestion = () => {
+          const newQ = {
+            id: `q-${Date.now()}`,
+            text: "Nova Pergunta",
+            timeLimit: 20,
+            answers: [
+              { id: `a-1`, text: "Resposta 1", isCorrect: true, shape: Shape.TRIANGLE },
+              { id: `a-2`, text: "Resposta 2", isCorrect: false, shape: Shape.DIAMOND },
+              { id: `a-3`, text: "Resposta 3", isCorrect: false, shape: Shape.CIRCLE },
+              { id: `a-4`, text: "Resposta 4", isCorrect: false, shape: Shape.SQUARE },
+            ]
+          };
+          setQuestions([...questions, newQ]);
+        };
+
+        const updateQuestion = (index, field, value) => {
+          const newQs = [...questions];
+          newQs[index][field] = value;
+          setQuestions(newQs);
+        };
+
+        const updateAnswer = (qIndex, aIndex, text) => {
+          const newQs = [...questions];
+          newQs[qIndex].answers[aIndex].text = text;
+          setQuestions(newQs);
+        };
+
+        const toggleCorrect = (qIndex, aIndex) => {
+          const newQs = [...questions];
+          newQs[qIndex].answers[aIndex].isCorrect = !newQs[qIndex].answers[aIndex].isCorrect;
+          setQuestions(newQs);
+        };
+
+        return (
+          <div className="relative z-10 flex flex-col w-full h-[100dvh] md:h-[90vh] md:max-w-5xl md:mx-auto bg-slate-900 md:bg-white/10 backdrop-blur-md md:rounded-xl border-none md:border border-white/20 shadow-2xl md:mt-4 overflow-hidden">
+            <div className="flex flex-col md:flex-row justify-between items-center p-3 md:p-4 bg-black/30 md:bg-transparent border-b border-white/10 md:border-none shrink-0 gap-3">
+              <h2 className="text-xl md:text-3xl font-black text-white w-full text-center md:text-left">Criar Kahoot!</h2>
+              <div className="grid grid-cols-2 gap-2 w-full md:w-auto">
+                <button onClick={onCancel} className="px-3 py-2 bg-gray-600 rounded font-bold hover:bg-gray-500 text-sm">Cancelar</button>
+                <button onClick={() => onSave({ title, questions })} disabled={questions.length === 0} className="px-4 py-2 bg-green-600 rounded font-bold hover:bg-green-500 disabled:opacity-50 text-sm whitespace-nowrap">
+                  Salvar & Jogar
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 md:space-y-6 pb-20 md:pb-6">
+              <div>
+                  <label className="block text-xs uppercase font-bold mb-1 text-white/70">Título do Quiz</label>
+                  <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-3 rounded-lg bg-white/10 text-white placeholder-white/30 border border-white/20 focus:outline-none font-bold text-lg" placeholder="Digite o título..." />
+              </div>
+
+              {questions.length === 0 && (
+                  <div className="text-center py-12 text-white/50 border-2 border-dashed border-white/20 rounded-xl bg-white/5">
+                      <p className="text-lg font-bold mb-2">Seu quiz está vazio!</p>
+                      <button onClick={addEmptyQuestion} className="bg-white/10 hover:bg-white/20 px-4 py-2 rounded text-white font-bold">Criar 1ª Pergunta</button>
+                  </div>
+              )}
+              
+              {questions.map((q, qIndex) => (
+              <div key={q.id} className="bg-white/5 p-3 md:p-4 rounded-xl border border-white/10 shadow-lg">
+                  <div className="flex justify-between items-center mb-3">
+                      <h3 className="font-bold text-white/80 text-sm uppercase">Pergunta {qIndex + 1}</h3>
+                      <button onClick={() => setQuestions(questions.filter((_, i) => i !== qIndex))} className="text-red-400">🗑️</button>
+                  </div>
+                  <input value={q.text} onChange={(e) => updateQuestion(qIndex, 'text', e.target.value)} className="w-full p-3 mb-4 text-lg font-bold text-center rounded-lg text-black" placeholder="Digite a pergunta..." />
+                  <div className="flex flex-col md:flex-row gap-3 mb-4">
+                      <div className="w-full md:w-1/3">
+                          <label className="text-[10px] uppercase font-bold text-white/60 mb-1 block">Tempo (s)</label>
+                          <select value={q.timeLimit} onChange={(e) => updateQuestion(qIndex, 'timeLimit', parseInt(e.target.value))} className="w-full p-3 rounded bg-black/30 border border-white/20 text-white">
+                              <option value={5}>5s</option><option value={10}>10s</option><option value={20}>20s</option><option value={30}>30s</option><option value={60}>60s</option>
+                          </select>
+                      </div>
+                      <div className="w-full md:w-2/3">
+                          <label className="text-[10px] uppercase font-bold text-white/60 mb-1 block">URL da Imagem</label>
+                          <input value={q.imageUrl || ''} onChange={(e) => updateQuestion(qIndex, 'imageUrl', e.target.value)} className="w-full p-3 rounded bg-black/30 border border-white/20 text-white text-sm" placeholder="https://..." />
+                      </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {q.answers.map((a, aIndex) => (
+                      <div key={a.id} className={`flex items-center p-2 rounded-lg border-2 ${a.isCorrect ? 'bg-green-600/20 border-green-500' : 'bg-black/20 border-transparent'}`}>
+                        <div className={`w-10 h-10 shrink-0 flex items-center justify-center mr-2 rounded text-white font-bold text-lg ${a.shape === Shape.TRIANGLE ? 'bg-red-500' : a.shape === Shape.DIAMOND ? 'bg-blue-500' : a.shape === Shape.CIRCLE ? 'bg-yellow-500' : 'bg-green-500'}`}>{SHAPE_ICONS[a.shape]}</div>
+                        <input value={a.text} onChange={(e) => updateAnswer(qIndex, aIndex, e.target.value)} className="flex-1 bg-transparent border-b border-white/10 text-white outline-none" />
+                        <input type="checkbox" checked={a.isCorrect} onChange={() => toggleCorrect(qIndex, aIndex)} className="ml-2 w-6 h-6 accent-green-500" />
+                      </div>
+                  ))}
+                  </div>
+              </div>
+              ))}
+              {questions.length > 0 && (
+                <button onClick={addEmptyQuestion} className="w-full py-4 border-2 border-dashed border-white/30 rounded-xl text-white/70 hover:bg-white/10 font-bold uppercase">+ Adicionar Pergunta</button>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      // --- Lobby Component ---
+      const Lobby = ({ pin, players, onStart, onCancel }) => {
+        const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://kahoot.it';
+        const displayUrl = origin.replace(/^https?:\/\//, '');
+        const joinUrl = `${origin}/?pin=${pin}`;
+
+        return (
+          <div className="relative z-10 flex flex-col h-screen w-full">
+            <div className="bg-white text-black shadow-xl flex flex-col md:flex-row items-center justify-between px-4 py-2 md:px-6 md:py-3 shrink-0 relative z-20 gap-3 md:gap-0">
+              <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
+                  <div className="hidden md:block bg-white p-1 border border-black/10 rounded shadow-lg hover:scale-[3] transition-transform origin-top-left z-50 cursor-pointer">
+                      <QRCodeView url={joinUrl} size={100} />
+                  </div>
+                  <div className="text-left md:ml-2">
+                      <p className="text-gray-500 font-bold text-xs md:text-sm uppercase tracking-wider">Acesse para jogar</p>
+                      <div className="text-xl md:text-3xl font-black text-indigo-900 tracking-tight leading-none my-0.5 truncate max-w-[200px] md:max-w-none">
+                          {displayUrl}
+                      </div>
+                  </div>
+              </div>
+              <div className="text-center md:text-right w-full md:w-auto flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end border-t md:border-t-0 border-gray-200 pt-2 md:pt-0 mt-2 md:mt-0">
+                  <p className="text-gray-500 font-bold text-xs md:text-sm uppercase tracking-wider md:mb-1">PIN do Jogo</p>
+                  <div className="text-5xl md:text-7xl font-black tracking-widest text-black leading-none select-all bg-gray-100 px-2 rounded md:bg-transparent md:px-0">
+                      {pin}
+                  </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 w-full bg-black/20 backdrop-blur-sm flex flex-col items-center">
+              <div className="md:hidden mb-6 bg-white p-4 rounded-2xl shadow-2xl border-4 border-white rotate-1">
+                  <QRCodeView url={joinUrl} size={180} />
+                  <p className="text-center text-black font-bold text-xs mt-2 uppercase">Escaneie para entrar</p>
+              </div>
+
+              <div className="w-full max-w-6xl">
+                  <div className="flex justify-between items-center mb-6">
+                      <div className="bg-black/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-md border border-white/10 shadow-lg">
+                          👤 {players.length} Jogador{players.length !== 1 ? 'es' : ''}
+                      </div>
+                      <button onClick={onCancel} className="bg-red-500/20 hover:bg-red-500/40 text-red-200 hover:text-white px-3 py-1.5 rounded font-bold transition-colors text-xs md:text-sm">Cancelar</button>
+                  </div>
+                  <div className="flex flex-wrap gap-3 md:gap-4 justify-center content-start pb-24">
+                      {players.length === 0 && (
+                          <div className="mt-8 md:mt-20 flex flex-col items-center opacity-70 text-center bg-black/30 p-8 rounded-2xl border-2 border-dashed border-white/20">
+                              <div className="text-5xl md:text-6xl mb-4 animate-bounce">⏳</div>
+                              <h2 className="text-xl md:text-2xl font-bold">Aguardando jogadores...</h2>
+                              <p className="text-xs md:text-sm mt-2">Use o PIN {pin} ou o QR Code para entrar!</p>
+                          </div>
+                      )}
+                      {players.map((p) => (
+                          <div key={p.id} className="bg-white text-black font-black text-base md:text-xl px-4 py-2 md:px-6 md:py-3 rounded-lg shadow-[0_4px_0_rgba(0,0,0,0.2)] animate-[bounce_0.5s_ease-out] border-b-4 border-gray-300 min-w-[100px] md:min-w-[140px] text-center transform hover:scale-105 transition-transform">
+                              {p.nickname}
+                          </div>
+                      ))}
+                  </div>
+              </div>
+            </div>
+
+            <div className="p-4 md:p-6 bg-indigo-900/95 backdrop-blur-xl border-t border-white/10 flex justify-end shrink-0 fixed md:relative bottom-0 w-full z-50">
+                <div className="w-full max-w-6xl mx-auto flex justify-end">
+                  <button onClick={onStart} disabled={players.length === 0} className="w-full md:w-auto bg-white text-black font-black text-xl md:text-2xl px-8 py-3 md:px-12 md:py-4 rounded shadow-[0_4px_0_rgb(0,0,0,0.2)] hover:shadow-[0_2px_0_rgb(0,0,0,0.2)] hover:translate-y-[2px] transition-all disabled:opacity-50">
+                      Iniciar Jogo
+                  </button>
+                </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- Host Game Component ---
+      const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, onNext }) => {
+        const question = quiz.questions[currentQuestionIndex];
+        const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+
+        if (gameState === GameState.COUNTDOWN) {
+            return (
+                <div className="relative z-10 flex flex-col items-center justify-center min-h-screen">
+                    <h1 className="text-4xl font-bold mb-8">{quiz.title}</h1>
+                    <div className="text-[12rem] font-black animate-ping">{timeLeft}</div>
+                    <p className="text-2xl mt-8">Prepare-se!</p>
+                </div>
+            )
+        }
+
+        if (gameState === GameState.LEADERBOARD || gameState === GameState.PODIUM) {
+            const isPodium = gameState === GameState.PODIUM;
+            return (
+              <div className="relative z-10 flex flex-col items-center pt-10 min-h-screen w-full max-w-4xl mx-auto">
+                  <h1 className="text-4xl font-black bg-white text-indigo-900 px-8 py-2 rounded-lg mb-10">{isPodium ? 'Pódio' : 'Placar'}</h1>
+                  <div className="flex flex-col gap-4 w-full px-8">
+                      {sortedPlayers.slice(0, 5).map((p, idx) => (
+                          <div key={p.id} className="flex items-center justify-between bg-white/10 backdrop-blur rounded-lg p-4 animate-slide-in">
+                              <div className="flex items-center gap-4">
+                                  <span className="font-black text-2xl w-8">{idx + 1}</span>
+                                  <span className="font-bold text-xl">{p.nickname}</span>
+                                  {p.streak > 2 && <span className="bg-orange-500 text-xs font-bold px-2 py-1 rounded-full">🔥 {p.streak}</span>}
+                              </div>
+                              <span className="font-black text-2xl">{p.score}</span>
+                          </div>
+                      ))}
+                  </div>
+                  <button onClick={onNext} className="mt-auto mb-10 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded shadow-lg transition-transform hover:scale-105">
+                      {isPodium ? 'Voltar ao Menu' : 'Próxima Pergunta'}
+                  </button>
+              </div>
+            );
+        }
+
+        return (
+          <div className="relative z-10 flex flex-col h-screen p-4 w-full">
+            <div className="flex justify-between items-start mb-4">
+              <div className="bg-white text-black font-bold px-4 py-2 rounded-full text-xl shadow-lg">
+                  {currentQuestionIndex + 1} / {quiz.questions.length}
+              </div>
+              <div className="w-20 h-20 bg-purple-600 rounded-full flex items-center justify-center border-4 border-white shadow-xl">
+                  <span className="text-4xl font-black">{timeLeft}</span>
+              </div>
+            </div>
+            <div className="bg-white text-black p-8 rounded-lg shadow-2xl text-center mb-6 mx-auto max-w-4xl w-full">
+              <h2 className="text-3xl md:text-5xl font-bold leading-tight">{question.text}</h2>
+            </div>
+            <div className="flex-1 flex justify-center items-center mb-6 relative">
+              <div className="h-full max-h-[40vh] aspect-video bg-black/20 rounded-lg overflow-hidden border-4 border-white/20 shadow-lg">
+                  <img src={question.imageUrl || "https://picsum.photos/800/400"} alt="Question" className="w-full h-full object-cover" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 h-48 md:h-64">
+              {question.answers.map((answer, idx) => (
+                  <div key={idx} className={`${COLORS[answer.shape]} flex items-center p-6 rounded shadow-lg transition-transform`}>
+                      <div className="text-4xl md:text-5xl mr-6 text-white drop-shadow-md">{SHAPE_ICONS[answer.shape]}</div>
+                      <span className="text-xl md:text-3xl font-bold text-white drop-shadow-md">{answer.text}</span>
+                  </div>
+              ))}
+            </div>
+            <div className="absolute bottom-4 left-4 text-white/50 font-bold text-xl">kahoot-clone-2025</div>
+          </div>
+        );
+      };
+
+      // --- Player View Component ---
+      const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, nickname, feedback }) => {
+        const [inputName, setInputName] = useState("");
+        const [pin, setPin] = useState("");
+        const [joined, setJoined] = useState(false);
+
+        useEffect(() => {
+          const urlParams = new URLSearchParams(window.location.search);
+          const pinParam = urlParams.get('pin');
+          if (pinParam) setPin(pinParam);
+          if (nickname) setJoined(true);
+        }, [nickname]);
+
+        const handleJoin = (e) => {
+          e.preventDefault();
+          if (inputName.trim() && pin) {
+            onJoin(inputName);
+          }
+        };
+
+        if (!joined) {
+          return (
+            <div className="relative z-10 flex flex-col items-center justify-center min-h-screen p-4">
+              <div className="bg-white text-black p-8 rounded-lg shadow-2xl max-w-sm w-full text-center">
+                  <h1 className="text-4xl font-black mb-6 text-indigo-900">Kahoot!</h1>
+                  <form onSubmit={handleJoin}>
+                    <input type="text" placeholder="PIN" className="w-full p-3 border-2 border-gray-300 rounded mb-4 text-center font-bold text-xl uppercase text-black" value={pin} onChange={e => setPin(e.target.value)} />
+                    <input type="text" placeholder="Apelido" className="w-full p-3 border-2 border-gray-300 rounded mb-6 text-center font-bold text-xl text-black" value={inputName} onChange={e => setInputName(e.target.value)} />
+                    <button type="submit" className="w-full bg-black text-white py-3 rounded font-black text-xl hover:bg-gray-800 transition-colors">Entrar</button>
+                  </form>
+              </div>
+            </div>
+          );
+        }
+
+        if (feedback && gameState !== GameState.QUESTION && gameState !== GameState.COUNTDOWN) {
+            const isCorrect = feedback.isCorrect;
+            return (
+              <div className={`relative z-20 absolute inset-0 flex flex-col items-center justify-center p-8 ${isCorrect ? 'bg-green-600' : 'bg-red-600'} transition-colors duration-300 min-h-screen`}>
+                  <div className="bg-white/20 p-8 rounded-full mb-6 backdrop-blur-md shadow-lg animate-[bounce_0.6s_infinite]">
+                      <span className="text-6xl font-black">{isCorrect ? '✓' : '✗'}</span>
+                  </div>
+                  <h2 className="text-4xl font-black mb-4 uppercase drop-shadow-md">{isCorrect ? 'Correto!' : 'Incorreto'}</h2>
+                  {isCorrect && <div className="bg-black/30 px-6 py-3 rounded-xl mb-4 text-center"><p className="text-sm font-bold opacity-80 uppercase">Pontos</p><p className="text-3xl font-black">+{feedback.points}</p></div>}
+                  <div className="absolute bottom-8 text-white/80 font-bold">Você está em {place}º lugar</div>
+              </div>
+            )
+        }
+
+        if (gameState === GameState.LOBBY) {
+            return (
+              <div className="relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8">
+                  <h2 className="text-3xl font-bold mb-4">Você entrou!</h2>
+                  <p className="text-xl">Veja seu apelido na tela?</p>
+                  <div className="mt-8 text-2xl font-black bg-white/20 px-6 py-2 rounded-full animate-pulse">{inputName}</div>
+              </div>
+            )
+        }
+
+        if (gameState === GameState.COUNTDOWN) {
+            return <div className="relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8 bg-purple-700"><h2 className="text-4xl font-black">Prepare-se!</h2></div>
+        }
+
+        if (gameState === GameState.QUESTION) {
+            if (hasAnswered) {
+                return <div className="relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8"><h2 className="text-3xl font-bold mb-4">Resposta Enviada!</h2></div>
+            }
+            return (
+              <div className="relative z-10 flex flex-col min-h-screen w-full">
+                  <div className="flex-1 grid grid-cols-2 gap-4 p-4 h-full">
+                      {Object.values(Shape).map((shape) => (
+                          <button key={shape} onClick={() => onSubmit(shape)} className={`${COLORS[shape]} rounded shadow-lg flex items-center justify-center active:scale-95 transition-transform h-full`}>
+                              <span className="text-6xl text-white drop-shadow-md">{SHAPE_ICONS[shape]}</span>
+                          </button>
+                      ))}
+                  </div>
+              </div>
+            );
+        }
+
+        return (
+          <div className="relative z-10 flex flex-col items-center justify-center min-h-screen text-center p-8">
+              <div className="bg-white text-black p-6 rounded-xl shadow-xl w-full max-w-sm">
+                  <p className="text-gray-500 font-bold uppercase text-sm mb-2">Pontuação Total</p>
+                  <h2 className="text-5xl font-black mb-6">{score}</h2>
+                  <div className="bg-black text-white py-3 rounded-lg font-bold text-xl mb-2">{place > 0 ? `${place}º Lugar` : '-'}</div>
+              </div>
+              <p className="mt-8 text-white/70 font-bold">{nickname}</p>
+          </div>
+        );
+      };
+
+      // --- Main App Component ---
+      const calculateScore = (timeLeft, totalTime, streak) => {
+          const percentage = timeLeft / totalTime;
+          const baseScore = Math.floor(500 + (percentage * 500));
+          const streakBonus = Math.min(streak * 100, 500);
+          return baseScore + streakBonus;
+      };
+
+      const App = () => {
+        const [appMode, setAppMode] = useState('MENU');
+        const [gameState, setGameState] = useState(GameState.MENU);
+        const [quiz, setQuiz] = useState(null);
+        const [pin, setPin] = useState("");
+        const [players, setPlayers] = useState([]);
+        const [currentQIndex, setCurrentQIndex] = useState(0);
+        const [timeLeft, setTimeLeft] = useState(0);
+        const [myPlayerId, setMyPlayerId] = useState("");
+        const [hasAnswered, setHasAnswered] = useState(false);
+        const [myFeedback, setMyFeedback] = useState(null);
+        const [myScore, setMyScore] = useState(0);
+        const [isMuted, setIsMuted] = useState(false);
+        
+        const bgMusicRef = useRef(null);
+        const sfxRef = useRef(null);
+        const channelRef = useRef(null);
+        const timerRef = useRef(null);
+        const CHANNEL_NAME = 'kahoot-clone-2025';
+
+        useEffect(() => {
+          bgMusicRef.current = new Audio(AUDIO.LOBBY_MUSIC);
+          bgMusicRef.current.loop = true;
+          bgMusicRef.current.volume = 0.3;
+          sfxRef.current = new Audio();
+          const savedId = localStorage.getItem('kahoot-player-id');
+          if (savedId) setMyPlayerId(savedId);
+        }, []);
+
+        const playSfx = (url) => {
+            if (isMuted || !sfxRef.current) return;
+            sfxRef.current.src = url;
+            sfxRef.current.currentTime = 0;
+            sfxRef.current.play().catch(() => {});
+        };
+
+        const toggleMute = () => {
+            setIsMuted(!isMuted);
+            if (bgMusicRef.current) bgMusicRef.current.muted = !isMuted;
+        };
+
+        useEffect(() => {
+          if (!bgMusicRef.current || isMuted) return;
+          if (appMode === 'HOST' && (gameState === GameState.LOBBY || gameState === GameState.LEADERBOARD)) {
+              bgMusicRef.current.play().catch(() => {});
+          } else {
+              bgMusicRef.current.pause();
+          }
+        }, [gameState, appMode, isMuted]);
+
+        useEffect(() => {
+          channelRef.current = new BroadcastChannel(CHANNEL_NAME);
+          channelRef.current.onmessage = (event) => {
+              const msg = event.data;
+              if (appMode === 'PLAYER') handlePlayerMessages(msg);
+              else if (appMode === 'HOST') handleHostMessages(msg);
+          };
+          if (appMode === 'PLAYER') {
+              setTimeout(() => broadcast({ type: 'REQUEST_STATE' }), 500);
+          }
+          return () => { channelRef.current?.close(); if (timerRef.current) clearInterval(timerRef.current); };
+        }, [appMode]); 
+
+        useEffect(() => {
+          if (appMode === 'HOST' && players.length > 0) broadcast({ type: 'UPDATE_PLAYERS', payload: players });
+        }, [players, appMode]);
+
+        const broadcast = (msg) => channelRef.current?.postMessage(msg);
+
+        const startHost = (createdQuiz) => {
+          setQuiz(createdQuiz);
+          const newPin = Math.floor(100000 + Math.random() * 900000).toString();
+          setPin(newPin);
+          setGameState(GameState.LOBBY);
+          setAppMode('HOST');
+          setTimeout(() => broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LOBBY, currentQuestionIndex: 0, totalQuestions: createdQuiz.questions.length, pin: newPin } }), 500);
+        };
+
+        const handleHostMessages = (msg) => {
+          if (msg.type === 'JOIN') {
+              setPlayers(prev => {
+                  if (prev.find(p => p.id === msg.payload.id)) return prev;
+                  playSfx(AUDIO.CORRECT); 
+                  return [...prev, { id: msg.payload.id, nickname: msg.payload.nickname, score: 0, streak: 0 }];
+              });
+          } else if (msg.type === 'REQUEST_STATE' && quiz && pin) {
+              broadcast({ type: 'SYNC_STATE', payload: { state: gameState, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+              broadcast({ type: 'UPDATE_PLAYERS', payload: players });
+          } else if (msg.type === 'SUBMIT_ANSWER') {
+              const { playerId, answerId, timeLeft: answerTime } = msg.payload;
+              setPlayers(prev => {
+                  const playerIndex = prev.findIndex(p => p.id === playerId);
+                  if (playerIndex === -1) return prev;
+                  const player = prev[playerIndex];
+                  const currentQ = quiz?.questions[currentQIndex];
+                  if (!currentQ) return prev;
+                  const isCorrect = currentQ.answers.find(a => a.shape === answerId)?.isCorrect || false;
+                  const currentStreak = isCorrect ? player.streak + 1 : 0;
+                  const pointsToAdd = isCorrect ? calculateScore(answerTime, currentQ.timeLimit, currentStreak) : 0;
+                  
+                  broadcast({ type: 'ANSWER_RESULT', payload: { playerId, isCorrect, pointsToAdd, newStreak: currentStreak } });
+                  
+                  const newPlayers = [...prev];
+                  newPlayers[playerIndex] = { ...player, score: player.score + pointsToAdd, streak: currentStreak, lastAnswerCorrect: isCorrect };
+                  return newPlayers;
+              });
+          }
+        };
+
+        const hostStartGame = () => hostStartCountdown();
+        
+        const hostStartCountdown = () => {
+            playSfx(AUDIO.COUNTDOWN);
+            setGameState(GameState.COUNTDOWN);
+            setTimeLeft(5);
+            broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+            let count = 5;
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = setInterval(() => {
+                count--;
+                setTimeLeft(count);
+                if (count <= 0) { clearInterval(timerRef.current); hostStartQuestion(); }
+            }, 1000);
+        };
+
+        const hostStartQuestion = () => {
+            setGameState(GameState.QUESTION);
+            const q = quiz.questions[currentQIndex];
+            setTimeLeft(q.timeLimit);
+            broadcast({ type: 'SYNC_STATE', payload: { state: GameState.QUESTION, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+            broadcast({ type: 'QUESTION_START', payload: { questionIndex: currentQIndex, timeLimit: q.timeLimit } });
+            let count = q.timeLimit;
+            if (timerRef.current) clearInterval(timerRef.current);
+            timerRef.current = setInterval(() => {
+                count--;
+                setTimeLeft(count);
+                if (count <= 0) { clearInterval(timerRef.current); hostShowLeaderboard(); }
+            }, 1000);
+        };
+
+        const hostShowLeaderboard = () => {
+            playSfx(AUDIO.TIME_UP);
+            setGameState(GameState.LEADERBOARD);
+            broadcast({ type: 'SYNC_STATE', payload: { state: GameState.LEADERBOARD, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+        };
+
+        const hostNextQuestion = () => {
+            if (currentQIndex + 1 >= quiz.questions.length) {
+                setGameState(GameState.PODIUM);
+                broadcast({ type: 'SYNC_STATE', payload: { state: GameState.PODIUM, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+            } else {
+                setCurrentQIndex(prev => prev + 1);
+                hostStartCountdown();
+            }
+        };
+
+        const handlePlayerMessages = (msg) => {
+            if (msg.type === 'SYNC_STATE') {
+                setGameState(msg.payload.state);
+                if (msg.payload.state === GameState.QUESTION) { setHasAnswered(false); setMyFeedback(null); }
+                if (msg.payload.state === GameState.LOBBY) setMyScore(0);
+            } else if (msg.type === 'UPDATE_PLAYERS') {
+                setPlayers(msg.payload);
+                const me = msg.payload.find(p => p.id === myPlayerId);
+                if (me) setMyScore(me.score);
+            } else if (msg.type === 'ANSWER_RESULT' && msg.payload.playerId === myPlayerId) {
+                setMyFeedback({ isCorrect: msg.payload.isCorrect, points: msg.payload.pointsToAdd, streak: msg.payload.newStreak });
+                playSfx(msg.payload.isCorrect ? AUDIO.CORRECT : AUDIO.WRONG);
+            }
+        };
+
+        const playerJoin = (nickname) => {
+            let id = myPlayerId;
+            if (!id) { id = `p-${Date.now()}-${Math.floor(Math.random()*1000)}`; setMyPlayerId(id); localStorage.setItem('kahoot-player-id', id); }
+            broadcast({ type: 'JOIN', payload: { nickname, id } });
+            setGameState(GameState.LOBBY); 
+        };
+
+        const playerSubmit = (shape) => {
+            if (hasAnswered) return;
+            setHasAnswered(true);
+            broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft } }); 
+        };
+
+        const handleBackToMenu = () => {
+          if ((appMode === 'HOST' && gameState !== GameState.CREATE) || (appMode === 'PLAYER' && players.some(p => p.id === myPlayerId))) {
+              if (!window.confirm("Tem certeza que deseja sair? O progresso será perdido.")) return;
+          }
+          setAppMode('MENU');
+          setGameState(GameState.MENU);
+          setQuiz(null);
+          setPin("");
+          setPlayers([]);
+          setCurrentQIndex(0);
+          setTimeLeft(0);
+          setMyFeedback(null);
+          setHasAnswered(false);
+          if (bgMusicRef.current) bgMusicRef.current.pause();
+        };
+
+        const shouldShowBackButton = () => {
+            if (appMode === 'HOST') return false;
+            if (appMode === 'PLAYER') { const isJoined = players.some(p => p.id === myPlayerId); return !isJoined; }
+            return true;
+        };
+
+        if (appMode === 'MENU') {
+            return (
+              <div className="relative min-h-screen font-sans text-white overflow-hidden flex flex-col items-center justify-center">
+                  <Background />
+                  <div className="relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full">
+                      <h1 className="text-6xl font-black mb-2 tracking-tight">Kahoot!</h1>
+                      <p className="text-xl mb-12 opacity-80 font-bold text-purple-200">Experiência Clone 2025</p>
+                      <div className="flex flex-col gap-4">
+                          <button onClick={() => { setAppMode('HOST'); setGameState(GameState.CREATE); }} className="bg-white text-indigo-900 font-black text-xl py-4 rounded shadow-lg hover:scale-105 transition-transform">Hospedar Jogo</button>
+                          <button onClick={() => setAppMode('PLAYER')} className="bg-indigo-600 border-2 border-indigo-400 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-indigo-500 transition-colors">Entrar no Jogo</button>
+                      </div>
+                      <p className="mt-8 text-xs text-white/40">Use Múltiplas Abas para Simular Jogadores (Modo BroadcastChannel)</p>
+                  </div>
+              </div>
+            );
+        }
+
+        return (
+          <div className="relative min-h-screen text-white overflow-hidden flex flex-col">
+               <Background />
+               {shouldShowBackButton() && (
+                  <button onClick={handleBackToMenu} className="absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2"><span>←</span> Voltar</button>
+               )}
+               {appMode === 'HOST' && (
+                 <div className="absolute bottom-4 right-4 z-50">
+                    <button onClick={toggleMute} className="bg-white/20 p-3 rounded-full hover:bg-white/40 shadow-lg border border-white/10 text-2xl">{isMuted ? '🔇' : '🔊'}</button>
+                 </div>
+               )}
+
+               {appMode === 'HOST' ? (
+                   gameState === GameState.CREATE ? <QuizCreator onSave={startHost} onCancel={handleBackToMenu} /> :
+                   gameState === GameState.LOBBY ? <Lobby pin={pin} players={players} onStart={hostStartGame} onCancel={handleBackToMenu} /> :
+                   <HostGame quiz={quiz} players={players} currentQuestionIndex={currentQIndex} timeLeft={timeLeft} gameState={gameState} onNext={hostNextQuestion} />
+               ) : (
+                   <PlayerView onJoin={playerJoin} onSubmit={playerSubmit} gameState={gameState} hasAnswered={hasAnswered} score={myScore} place={players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1} nickname={players.find(p => p.id === myPlayerId)?.nickname || ""} feedback={myFeedback} />
+               )}
+          </div>
+        );
+      };
+
+      const root = createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
   </body>
 </html>
