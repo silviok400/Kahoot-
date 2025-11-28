@@ -234,102 +234,124 @@ const CustomDropdown = ({ options, value, onChange, label }) => {
 // --- Joystick Component for Bonus Game ---
 const VirtualJoystick = ({ onMove }) => {
     const joystickRef = useRef(null);
-    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const knobRef = useRef(null);
     const [isActive, setIsActive] = useState(false);
-    
-    // Throttle send rate to avoid flooding, but fast enough for smooth movement (30ms = ~33fps)
     const lastSendTime = useRef(0);
+    const animationFrameId = useRef(null);
+    
+    // We use refs for position to avoid React render cycles slowing down the drag
+    const position = useRef({ x: 0, y: 0 });
 
-    const handleStart = (e) => {
-        setIsActive(true);
-        handleMove(e);
-    };
-
-    const handleEnd = () => {
-        setIsActive(false);
-        setPosition({ x: 0, y: 0 });
-        onMove({ x: 0, y: 0 });
-    };
-
-    const handleMove = useCallback((e) => {
-        if (!isActive || !joystickRef.current) return;
-        
-        // Critical: Prevent scrolling on touch devices so joystick works continuously
-        if(e.cancelable && e.type.startsWith('touch')) {
-             e.preventDefault();
-        }
-
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-        const rect = joystickRef.current.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        const maxRadius = rect.width / 2;
-
-        let dx = clientX - centerX;
-        let dy = clientY - centerY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        // Clamp to circle
-        if (distance > maxRadius) {
-            const angle = Math.atan2(dy, dx);
-            dx = Math.cos(angle) * maxRadius;
-            dy = Math.sin(angle) * maxRadius;
-        }
-
-        // Normalize -1 to 1
-        const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
-        const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
-
-        setPosition({ x: dx, y: dy });
-
-        const now = Date.now();
-        // Send more frequently for smoother movement (30ms)
-        if (now - lastSendTime.current > 30) { 
-            onMove({ x: normalizedX, y: normalizedY });
-            lastSendTime.current = now;
-        }
-    }, [isActive, onMove]);
-
-    // Attach non-passive listener to prevent scroll
     useEffect(() => {
-        const ref = joystickRef.current;
-        if (!ref) return;
+        const joystick = joystickRef.current;
+        if (!joystick) return;
 
-        const onTouchMove = (e) => handleMove(e);
-        // Passive: false is required to use preventDefault()
-        ref.addEventListener('touchmove', onTouchMove, { passive: false });
-        
-        return () => {
-            ref.removeEventListener('touchmove', onTouchMove);
+        const handleStart = (e) => {
+            // Prevent default behavior to stop scrolling/zooming
+            if (e.cancelable) e.preventDefault();
+            setIsActive(true);
+            updatePosition(e);
         };
-    }, [handleMove]);
+
+        const handleMove = (e) => {
+            if (!isActive && !e.type.startsWith('touch')) return; // For mouse, only move if active
+            // For touch, if we are here, it's active because we bound the listener
+            if (e.cancelable) e.preventDefault();
+            updatePosition(e);
+        };
+
+        const handleEnd = (e) => {
+            if (e.cancelable) e.preventDefault();
+            setIsActive(false);
+            position.current = { x: 0, y: 0 };
+            
+            // Visual Reset
+            if (knobRef.current) {
+                knobRef.current.style.transform = `translate(0px, 0px)`;
+            }
+            
+            // Logic Reset
+            onMove({ x: 0, y: 0 });
+        };
+
+        const updatePosition = (e) => {
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const rect = joystick.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const maxRadius = rect.width / 2;
+
+            let dx = clientX - centerX;
+            let dy = clientY - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Clamp to circle
+            if (distance > maxRadius) {
+                const angle = Math.atan2(dy, dx);
+                dx = Math.cos(angle) * maxRadius;
+                dy = Math.sin(angle) * maxRadius;
+            }
+
+            // Visual Update (Direct DOM manipulation for performance)
+            if (knobRef.current) {
+                knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+            }
+
+            // Logic Update (Throttled)
+            const now = Date.now();
+            if (now - lastSendTime.current > 30) {
+                const normalizedX = parseFloat((dx / maxRadius).toFixed(2));
+                const normalizedY = parseFloat((dy / maxRadius).toFixed(2));
+                onMove({ x: normalizedX, y: normalizedY });
+                lastSendTime.current = now;
+            }
+        };
+
+        // Attach listeners directly to DOM to support { passive: false }
+        joystick.addEventListener('touchstart', handleStart, { passive: false });
+        joystick.addEventListener('mousedown', handleStart);
+        
+        // Window listeners for move/end to capture dragging outside element
+        const handleWindowMove = (e) => {
+            if (isActive) handleMove(e);
+        };
+        const handleWindowEnd = (e) => {
+            if (isActive) handleEnd(e);
+        };
+
+        window.addEventListener('touchmove', handleWindowMove, { passive: false });
+        window.addEventListener('touchend', handleWindowEnd);
+        window.addEventListener('mousemove', handleWindowMove);
+        window.addEventListener('mouseup', handleWindowEnd);
+
+        return () => {
+            joystick.removeEventListener('touchstart', handleStart);
+            joystick.removeEventListener('mousedown', handleStart);
+            window.removeEventListener('touchmove', handleWindowMove);
+            window.removeEventListener('touchend', handleWindowEnd);
+            window.removeEventListener('mousemove', handleWindowMove);
+            window.removeEventListener('mouseup', handleWindowEnd);
+        };
+    }, [isActive, onMove]); // Re-bind if isActive changes (simple state machine)
 
     return (
         React.createElement('div', { 
-            className: "flex flex-col items-center justify-center h-full",
-            style: { touchAction: 'none' } // Important: Disables browser gestures
+            className: "flex flex-col items-center justify-center h-full w-full fixed inset-0 bg-slate-900",
+            style: { touchAction: 'none' } 
         },
-            React.createElement('h3', { className: "text-2xl font-black mb-8 animate-pulse text-yellow-300 pointer-events-none" }, "Controle o Personagem!"),
+            React.createElement('h3', { className: "text-2xl font-black mb-12 animate-pulse text-yellow-300 pointer-events-none select-none" }, "Controle o Personagem!"),
             React.createElement('div', { 
                 ref: joystickRef,
-                className: "w-64 h-64 bg-white/10 rounded-full border-4 border-white/30 relative flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)]",
-                style: { touchAction: 'none' },
-                onMouseDown: handleStart,
-                onMouseMove: handleMove,
-                onMouseUp: handleEnd,
-                onMouseLeave: handleEnd,
-                onTouchStart: handleStart,
-                // onTouchMove handled by effect for passive: false
-                onTouchEnd: handleEnd
+                className: "w-64 h-64 bg-white/10 rounded-full border-4 border-white/30 relative flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)] touch-none select-none cursor-pointer",
             },
                 React.createElement('div', { 
-                    className: "w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-2xl absolute transition-transform duration-75 ease-linear border-4 border-white/50 pointer-events-none",
-                    style: { transform: `translate(${position.x}px, ${position.y}px)` }
+                    ref: knobRef,
+                    className: "w-24 h-24 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full shadow-2xl absolute border-4 border-white/50 pointer-events-none will-change-transform",
                 })
             ),
-            React.createElement('p', { className: "mt-8 text-white/50 font-bold uppercase tracking-widest text-sm pointer-events-none" }, "Use o analógico para pegar bolas!")
+            React.createElement('p', { className: "mt-12 text-white/50 font-bold uppercase tracking-widest text-sm pointer-events-none select-none" }, "Arraste para mover")
         )
     );
 };
@@ -1723,9 +1745,10 @@ const App = () => {
       broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeftRef.current } }); 
   };
   
-  const playerJoystickMove = (vector) => {
-      broadcast({ type: 'PLAYER_INPUT', payload: { id: myPlayerId, vector }});
-  };
+  // Stable callback using Refs to avoid re-creation on every render
+  const playerJoystickMove = useCallback((vector) => {
+      broadcast({ type: 'PLAYER_INPUT', payload: { id: myPlayerIdRef.current, vector }});
+  }, []);
   
   const resetAllState = () => {
     setAppMode('MENU');
