@@ -105,6 +105,46 @@ const deletePlayer = async (playerId) => {
     }
 };
 
+const deleteGameSessionByPin = async (pin) => {
+    if (!pin) return;
+
+    // Find the latest game with this PIN
+    const { data: game, error: gameError } = await supabase
+        .from('games')
+        .select('id')
+        .eq('pin', pin)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+    
+    if (gameError || !game) {
+        console.error("Não foi possível encontrar o jogo para deletar com PIN:", pin, gameError);
+        return;
+    }
+    
+    // Delete associated players
+    const { error: playersError } = await supabase
+        .from('players')
+        .delete()
+        .eq('game_id', game.id);
+
+    if (playersError) {
+        console.error("Erro ao deletar jogadores do jogo:", playersError);
+    }
+
+    // Delete the game itself
+    const { error: gameDeleteError } = await supabase
+        .from('games')
+        .delete()
+        .eq('id', game.id);
+    
+    if (gameDeleteError) {
+        console.error("Erro ao deletar sessão de jogo:", gameDeleteError);
+    } else {
+        console.log(`Jogo com PIN ${pin} (ID: ${game.id}) foi deletado com sucesso do banco de dados.`);
+    }
+};
+
 // --- From components/Shared/Background.tsx ---
 const Background = () => {
   return (
@@ -129,10 +169,56 @@ const Background = () => {
 };
 
 // --- From components/Host/QuizCreator.tsx ---
-const QuizCreator = ({ onSave, onCancel }) => {
-  const [title, setTitle] = useState("Meu Quiz Incrível");
-  const [questions, setQuestions] = useState([]);
-  
+const SaveQuizModal = ({ quizTitle, onSave, onCancel }) => {
+    const [name, setName] = useState(quizTitle);
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!name || !password) {
+            alert("Por favor, preencha o nome e a senha.");
+            return;
+        }
+        onSave(name, password);
+    };
+
+    return React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" },
+        React.createElement('form', { onSubmit: handleSubmit, className: "bg-white text-black p-6 rounded-lg shadow-xl max-w-sm w-full animate-zoom-in" },
+            React.createElement('h3', { className: "text-xl font-black mb-4" }, "Salvar Quiz"),
+            React.createElement('div', { className: "mb-4" },
+                React.createElement('label', { className: "block text-sm font-bold text-gray-700 mb-1" }, "Nome do Quiz"),
+                React.createElement('input', {
+                    type: "text",
+                    value: name,
+                    onChange: (e) => setName(e.target.value),
+                    className: "w-full p-2 border border-gray-300 rounded",
+                    required: true
+                })
+            ),
+            React.createElement('div', { className: "mb-6" },
+                React.createElement('label', { className: "block text-sm font-bold text-gray-700 mb-1" }, "Senha para Recuperação"),
+                React.createElement('input', {
+                    type: "password",
+                    value: password,
+                    onChange: (e) => setPassword(e.target.value),
+                    className: "w-full p-2 border border-gray-300 rounded",
+                    required: true
+                })
+            ),
+            React.createElement('div', { className: "flex justify-end gap-4" },
+                React.createElement('button', { type: "button", onClick: onCancel, className: "px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold transition-colors" }, "Cancelar"),
+                React.createElement('button', { type: "submit", className: "px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold transition-colors" }, "Salvar")
+            )
+        )
+    );
+};
+
+
+const QuizCreator = ({ onSave, onCancel, onSaveQuiz, initialQuiz }) => {
+  const [title, setTitle] = useState(initialQuiz?.title || "Meu Quiz Incrível");
+  const [questions, setQuestions] = useState(initialQuiz?.questions || []);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+
   const addEmptyQuestion = () => {
     const newQ = {
       id: `q-${Date.now()}`,
@@ -189,6 +275,14 @@ const QuizCreator = ({ onSave, onCancel }) => {
   };
 
   return React.createElement('div', { className: "relative z-10 flex flex-col w-full h-[100dvh] md:h-[90vh] md:max-w-5xl md:mx-auto bg-slate-900/90 md:bg-white/10 backdrop-blur-md md:rounded-xl border-none md:border border-white/20 shadow-2xl md:mt-4 overflow-hidden" },
+      isSaveModalOpen && React.createElement(SaveQuizModal, {
+          quizTitle: title,
+          onSave: (name, password) => {
+              onSaveQuiz({ title, questions }, name, password);
+              setIsSaveModalOpen(false);
+          },
+          onCancel: () => setIsSaveModalOpen(false)
+      }),
       React.createElement('div', { className: "flex flex-col md:flex-row justify-between items-center p-4 bg-black/20 border-b border-white/10 shrink-0 gap-3" },
         React.createElement('div', { className: "flex items-center gap-4 w-full md:w-auto text-center md:text-left" },
           React.createElement('h2', { className: "text-xl md:text-3xl font-black text-white" }, "Criar Kahoot!")
@@ -196,6 +290,7 @@ const QuizCreator = ({ onSave, onCancel }) => {
         React.createElement('div', { className: "flex items-center gap-2 md:gap-4 w-full md:w-auto justify-end" },
             React.createElement('div', { className: "flex gap-2 ml-auto" },
                 React.createElement('button', { onClick: onCancel, className: "flex-1 md:flex-none px-3 py-2 bg-gray-600 rounded font-bold hover:bg-gray-500 text-sm" }, "Cancelar"),
+                React.createElement('button', { onClick: () => setIsSaveModalOpen(true), className: "flex-1 md:flex-none px-4 py-2 bg-blue-600 rounded font-bold hover:bg-blue-500 text-sm whitespace-nowrap" }, "Salvar"),
                 React.createElement('button', { onClick: () => onSave({ title, questions }), disabled: questions.length === 0, className: "flex-1 md:flex-none px-4 py-2 bg-green-600 rounded font-bold hover:bg-green-500 disabled:opacity-50 text-sm whitespace-nowrap" }, "Jogar Agora")
             )
         )
@@ -336,7 +431,11 @@ const Lobby = ({ pin, players, onStart, onCancel }) => {
              React.createElement(QRCodeView, { url: joinUrl, size: 200 })
         ),
         React.createElement('div', { className: "text-center md:text-right w-full md:w-auto" },
-            React.createElement('p', { className: "text-gray-500 font-bold text-sm md:text-base uppercase tracking-wider" }, "PIN do Jogo"),
+            React.createElement('div', { className: "flex items-center justify-center md:justify-end gap-2" },
+                React.createElement('div', { className: `w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]` }),
+                React.createElement('p', { className: "text-gray-500 font-bold text-xs uppercase tracking-wider" }, "Online")
+            ),
+            React.createElement('p', { className: "text-gray-500 font-bold text-sm md:text-base uppercase tracking-wider mt-1" }, "PIN do Jogo"),
             React.createElement('div', { className: "text-6xl md:text-8xl font-black tracking-widest text-black leading-none select-all" }, pin)
         )
       ),
@@ -388,7 +487,7 @@ const HostGame = ({ quiz, players, currentQuestionIndex, timeLeft, gameState, on
         const isPodium = gameState === GameState.PODIUM;
         return React.createElement(AnimatedScreen, { key: isPodium ? 'podium' : `leaderboard-${currentQuestionIndex}`, animationClass: 'animate-fade-in' },
           React.createElement('div', { className: "flex flex-col items-center pt-10 h-full w-full max-w-4xl mx-auto" },
-            React.createElement('h1', { className: "text-4xl font-black bg-white text-indigo-900 px-8 py-2 rounded-lg mb-10" }, isPodium ? 'Pódio' : 'Placar'),
+            React.createElement('h1', { className: "text-4xl font-black bg-white text-indigo-900 px-8 py-2 rounded-lg mb-10" }, isPodium ? 'Pódio Final' : 'Placar'),
             React.createElement('div', { className: "flex flex-col gap-4 w-full px-8" },
               sortedPlayers.slice(0, 5).map((p, idx) => (
                 React.createElement('div', { key: p.id, className: "flex items-center justify-between bg-white/10 backdrop-blur rounded-lg p-4 animate-slide-in-from-right", style: { animationDelay: `${idx * 0.1}s` } },
@@ -458,7 +557,7 @@ const PlayerView = ({ onJoin, onSubmit, gameState, hasAnswered, score, place, ni
   const handleJoin = (e) => {
     e.preventDefault();
     if (inputName.trim() && pin) {
-      onJoin(inputName);
+      onJoin(inputName, pin);
     }
   };
   
@@ -581,6 +680,132 @@ const ConnectionBadge = ({ isConnected }) => (
   )
 );
 
+const ConfirmModal = ({ onConfirm, onCancel, text }) => (
+    React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" },
+        React.createElement('div', { className: "bg-white text-black p-6 rounded-lg shadow-xl max-w-sm w-full text-center animate-zoom-in" },
+            React.createElement('h3', { className: "text-xl font-black mb-2" }, "Atenção!"),
+            React.createElement('p', { className: "text-gray-700 mb-6" }, text),
+            React.createElement('div', { className: "flex justify-center gap-4" },
+                React.createElement('button', { onClick: onCancel, className: "px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold transition-colors" }, "Cancelar"),
+                React.createElement('button', { onClick: onConfirm, className: "px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded font-bold transition-colors" }, "Confirmar e Sair")
+            )
+        )
+    )
+);
+
+const LoadPasswordModal = ({ onConfirm, onCancel, title, buttonText, buttonClass }) => {
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onConfirm(password);
+    };
+
+    return React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm" },
+        React.createElement('form', { onSubmit: handleSubmit, className: "bg-white text-black p-6 rounded-lg shadow-xl max-w-sm w-full animate-zoom-in" },
+            React.createElement('h3', { className: "text-xl font-black mb-4" }, title || "Digite a Senha do Quiz"),
+            React.createElement('div', { className: "mb-6" },
+                React.createElement('input', {
+                    type: "password",
+                    value: password,
+                    onChange: (e) => setPassword(e.target.value),
+                    className: "w-full p-2 border border-gray-300 rounded",
+                    required: true,
+                    autoFocus: true
+                })
+            ),
+            React.createElement('div', { className: "flex justify-end gap-4" },
+                React.createElement('button', { type: "button", onClick: onCancel, className: "px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold transition-colors" }, "Cancelar"),
+                React.createElement('button', { type: "submit", className: `px-6 py-2 text-white rounded font-bold transition-colors ${buttonClass || 'bg-indigo-600 hover:bg-indigo-500'}` }, buttonText || "Carregar")
+            )
+        )
+    );
+};
+
+const QuizLoader = ({ onLoad, onDelete, onBack, hashPassword }) => {
+    const [savedQuizzes, setSavedQuizzes] = useState([]);
+    const [quizToLoad, setQuizToLoad] = useState(null);
+    const [quizToDelete, setQuizToDelete] = useState(null);
+
+    useEffect(() => {
+        try {
+            const quizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
+            setSavedQuizzes(quizzes);
+        } catch (e) {
+            console.error("Failed to load quizzes from storage", e);
+            setSavedQuizzes([]);
+        }
+    }, []);
+
+    const handleLoadPasswordConfirm = async (password) => {
+        if (!quizToLoad) return;
+        const hash = await hashPassword(password);
+        if (hash === quizToLoad.passwordHash) {
+            onLoad(quizToLoad.quizData);
+        } else {
+            alert("Senha incorreta!");
+        }
+        setQuizToLoad(null);
+    };
+
+    const handleDeletePasswordConfirm = async (password) => {
+        if (!quizToDelete) return;
+        const hash = await hashPassword(password);
+        if (hash === quizToDelete.passwordHash) {
+            onDelete(quizToDelete.id);
+            setSavedQuizzes(prev => prev.filter(q => q.id !== quizToDelete.id));
+        } else {
+            alert("Senha incorreta!");
+        }
+        setQuizToDelete(null);
+    };
+
+    return React.createElement('div', { className: "relative z-10 flex flex-col w-full h-screen p-4" },
+        quizToLoad && React.createElement(LoadPasswordModal, {
+            title: "Digite a Senha do Quiz",
+            buttonText: "Carregar",
+            buttonClass: "bg-indigo-600 hover:bg-indigo-500",
+            onConfirm: handleLoadPasswordConfirm,
+            onCancel: () => setQuizToLoad(null)
+        }),
+        quizToDelete && React.createElement(LoadPasswordModal, {
+            title: `Excluir "${quizToDelete.name}"`,
+            buttonText: "Excluir",
+            buttonClass: "bg-red-600 hover:bg-red-500",
+            onConfirm: handleDeletePasswordConfirm,
+            onCancel: () => setQuizToDelete(null)
+        }),
+        React.createElement('div', { className: "w-full max-w-2xl mx-auto flex flex-col h-full" },
+            React.createElement('div', { className: "flex items-center justify-between mb-8" },
+                React.createElement('h1', { className: "text-4xl font-black" }, "Carregar Quiz Salvo"),
+                React.createElement('button', { onClick: onBack, className: "bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" }, "← Voltar ao Menu")
+            ),
+            savedQuizzes.length === 0 ? (
+                React.createElement('div', { className: "flex-1 flex flex-col items-center justify-center bg-black/20 rounded-xl" },
+                    React.createElement('p', { className: "text-2xl" }, "📚"),
+                    React.createElement('p', { className: "font-bold mt-2" }, "Nenhum quiz salvo encontrado."),
+                    React.createElement('p', { className: "text-sm text-white/60" }, "Crie e salve um quiz para vê-lo aqui.")
+                )
+            ) : (
+                React.createElement('div', { className: "flex-1 overflow-y-auto space-y-3 pr-2" },
+                    savedQuizzes.map(quiz => (
+                        React.createElement('div', {
+                            key: quiz.id,
+                            className: "flex items-center justify-between bg-white/10 backdrop-blur rounded-lg p-4 animate-slide-in-from-right"
+                        },
+                            React.createElement('span', { className: "font-bold text-lg" }, quiz.name),
+                            React.createElement('div', { className: "flex gap-2" },
+                                React.createElement('button', { onClick: () => setQuizToDelete(quiz), className: "px-3 py-1 bg-red-600/50 hover:bg-red-600 rounded text-xs font-bold" }, "Excluir"),
+                                React.createElement('button', { onClick: () => setQuizToLoad(quiz), className: "px-4 py-1 bg-green-600 hover:bg-green-500 rounded text-sm font-bold" }, "Carregar")
+                            )
+                        )
+                    ))
+                )
+            )
+        )
+    );
+};
+
 const App = () => {
   const [appMode, setAppMode] = useState('MENU');
   
@@ -597,6 +822,7 @@ const App = () => {
   const [myFeedback, setMyFeedback] = useState(null);
   const [myScore, setMyScore] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
+  const [isConfirmingExit, setIsConfirmingExit] = useState(false);
 
   const [isMuted, setIsMuted] = useState(false);
   const bgMusicRef = useRef(null);
@@ -611,12 +837,6 @@ const App = () => {
     bgMusicRef.current.loop = true;
     bgMusicRef.current.volume = 0.3;
     sfxRef.current = new Audio();
-
-    const savedId = localStorage.getItem('kahoot-player-id');
-    if (savedId) {
-        // We don't set player ID here anymore to prevent rejoining without going through the join flow.
-        // It will be re-established on a successful join.
-    }
   }, []);
 
   const playSfx = (url) => {
@@ -876,27 +1096,35 @@ const App = () => {
               }
           }, 1000);
       }
+      else if (msg.type === 'GAME_ENDED') {
+        alert("O anfitrião encerrou o jogo.");
+        setMyPlayerId("");
+        localStorage.removeItem('kahoot-player-id');
+        resetAllState();
+    }
   };
   
-  const playerJoin = async (nickname) => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const pinParam = urlParams.get('pin');
-      if (!pinParam) {
-          console.error("Nenhum PIN na URL");
-          // TODO: Add user-facing error
+  const playerJoin = async (nickname, pinToJoin) => {
+      if (!pinToJoin) {
+          alert("Por favor, insira um PIN para entrar no jogo.");
           return;
       }
       
-      const newPlayer = await registerPlayer(pinParam, nickname);
+      const newPlayer = await registerPlayer(pinToJoin, nickname);
       
       if (newPlayer) {
           setMyPlayerId(newPlayer.id);
           localStorage.setItem('kahoot-player-id', newPlayer.id);
           broadcast({ type: 'JOIN', payload: { nickname: newPlayer.nickname, id: newPlayer.id } });
           setGameState(GameState.LOBBY);
+          const url = new URL(window.location.href);
+          if (url.searchParams.get('pin') !== pinToJoin) {
+            url.searchParams.set('pin', pinToJoin);
+            window.history.pushState({}, '', url);
+          }
       } else {
           console.error("Falha ao entrar no jogo.");
-          // TODO: Add user-facing error
+          alert("Falha ao entrar no jogo. O PIN pode estar incorreto ou o jogo não existe.");
       }
   };
 
@@ -906,15 +1134,8 @@ const App = () => {
       if (playerTimerRef.current) clearInterval(playerTimerRef.current);
       broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeft } }); 
   };
-
-  const handleBackToMenu = () => {
-    if (appMode === 'PLAYER' && myPlayerId) {
-        broadcast({ type: 'LEAVE', payload: { playerId: myPlayerId } });
-        deletePlayer(myPlayerId);
-        localStorage.removeItem('kahoot-player-id');
-        setMyPlayerId("");
-    }
-    
+  
+  const resetAllState = () => {
     setAppMode('MENU');
     setGameState(GameState.MENU);
     setQuiz(null);
@@ -924,30 +1145,122 @@ const App = () => {
     setTimeLeft(0);
     setMyFeedback(null);
     setHasAnswered(false);
+    setMyScore(0);
     if (bgMusicRef.current) {
         bgMusicRef.current.pause();
         bgMusicRef.current.currentTime = 0;
     }
+    if (window.location.search) {
+        window.history.pushState({}, document.title, window.location.pathname);
+    }
+  };
+
+  const executeBackToMenu = () => {
+    if (appMode === 'PLAYER' && myPlayerId) {
+        broadcast({ type: 'LEAVE', payload: { playerId: myPlayerId } });
+        deletePlayer(myPlayerId);
+        localStorage.removeItem('kahoot-player-id');
+        setMyPlayerId("");
+    }
+    
+    if (appMode === 'HOST') {
+        broadcast({ type: 'GAME_ENDED' });
+        deleteGameSessionByPin(pin);
+    }
+
+    resetAllState();
+  };
+
+  const handleBackToMenu = () => {
+    if (appMode === 'MENU' || isConfirmingExit) return;
+    setIsConfirmingExit(true);
   };
 
   const shouldShowBackButton = () => {
-    if (appMode === 'MENU') return false;
-    if (appMode === 'HOST' && gameState === GameState.CREATE) {
-        return false; // Only show cancel button inside creator
+    if (appMode === 'MENU' || appMode === 'LOADER') return false;
+    if (appMode === 'HOST' && (gameState === GameState.CREATE || gameState === GameState.LOBBY)) {
+        return false; // No back button in creator or host lobby
     }
     return true;
   };
+  
+  const hashPassword = async (password) => {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashHex;
+  };
 
-  if (appMode === 'MENU') {
-      return (
-        React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden flex flex-col items-center justify-center" },
+  const handleSaveQuiz = async (quizData, name, password) => {
+      if (!name || !password) {
+          alert("O nome do quiz e a senha são obrigatórios.");
+          return;
+      }
+      const passwordHash = await hashPassword(password);
+      const newQuiz = {
+          id: `quiz-${Date.now()}`,
+          name,
+          passwordHash,
+          quizData
+      };
+      try {
+          const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
+          savedQuizzes.push(newQuiz);
+          localStorage.setItem('savedQuizzes-2025', JSON.stringify(savedQuizzes));
+          alert(`Quiz "${name}" salvo com sucesso!`);
+      } catch (e) {
+          alert("Ocorreu um erro ao salvar o quiz.");
+      }
+  };
+
+  const handleDeleteQuiz = (quizId) => {
+      try {
+          const savedQuizzes = JSON.parse(localStorage.getItem('savedQuizzes-2025') || '[]');
+          const updatedQuizzes = savedQuizzes.filter(q => q.id !== quizId);
+          localStorage.setItem('savedQuizzes-2025', JSON.stringify(updatedQuizzes));
+      } catch (e) {
+          alert("Ocorreu um erro ao excluir o quiz.");
+      }
+  };
+
+  const handleLoadQuiz = (quizData) => {
+      setQuiz(quizData);
+      setAppMode('HOST');
+      setGameState(GameState.CREATE);
+  };
+
+  const BackButton = () => (
+    React.createElement('button', { onClick: handleBackToMenu, className: "absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" },
+        React.createElement('span', null, "←"), " Voltar"
+    )
+  );
+
+  const myPlayer = players.find(p => p.id === myPlayerId);
+  const myNickname = myPlayer ? myPlayer.nickname : "";
+  const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
+
+  return (
+    React.createElement('div', { className: "relative min-h-screen font-sans text-white overflow-hidden" },
+      isConfirmingExit && React.createElement(ConfirmModal, {
+          text: appMode === 'HOST' ? "Tem certeza que deseja sair? O jogo será encerrado para todos os jogadores." : "Tem certeza que deseja sair da sala?",
+          onConfirm: () => {
+              setIsConfirmingExit(false);
+              executeBackToMenu();
+          },
+          onCancel: () => setIsConfirmingExit(false)
+      }),
+      appMode === 'MENU' ? (
+          React.createElement('div', { className: "relative min-h-screen flex flex-col items-center justify-center" },
             React.createElement(Background, null),
             React.createElement(ConnectionBadge, { isConnected: isConnected }),
             React.createElement('div', { className: "relative z-10 text-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full" },
                 React.createElement('h1', { className: "text-6xl font-black mb-2 tracking-tight" }, "Kahoot!"),
                 React.createElement('p', { className: "text-xl mb-12 opacity-80 font-bold text-purple-200" }, "Experiência Clone 2025"),
                 React.createElement('div', { className: "flex flex-col gap-4" },
-                    React.createElement('button', { onClick: () => { setAppMode('HOST'); setGameState(GameState.CREATE); }, className: "bg-white text-indigo-900 font-black text-xl py-4 rounded shadow-lg hover:scale-105 transition-transform" }, "Hospedar Jogo"),
+                    React.createElement('button', { onClick: () => { setQuiz(null); setAppMode('HOST'); setGameState(GameState.CREATE); }, className: "bg-white text-indigo-900 font-black text-xl py-4 rounded shadow-lg hover:scale-105 transition-transform" }, "Criar Jogo"),
+                    React.createElement('button', { onClick: () => setAppMode('LOADER'), className: "bg-purple-600 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-purple-500 transition-colors" }, "Carregar Quiz Salvo"),
                     React.createElement('button', { onClick: () => setAppMode('PLAYER'), className: "bg-indigo-600 border-2 border-indigo-400 text-white font-bold text-xl py-4 rounded shadow-lg hover:bg-indigo-500 transition-colors" }, "Entrar no Jogo")
                 ),
                 !isConnected && (
@@ -959,18 +1272,18 @@ const App = () => {
                 )
             )
         )
-      );
-  }
-
-  const BackButton = () => (
-    React.createElement('button', { onClick: handleBackToMenu, className: "absolute top-4 left-4 z-50 bg-white/20 hover:bg-white/40 text-white px-4 py-2 rounded-full font-bold backdrop-blur-sm transition-colors flex items-center gap-2" },
-        React.createElement('span', null, "←"), " Voltar"
-    )
-  );
-
-  if (appMode === 'HOST') {
-      return (
-        React.createElement('div', { className: "relative min-h-screen text-white overflow-hidden flex flex-col" },
+      ) : appMode === 'LOADER' ? (
+          React.createElement('div', null,
+              React.createElement(Background, null),
+              React.createElement(QuizLoader, {
+                  onLoad: handleLoadQuiz,
+                  onDelete: handleDeleteQuiz,
+                  onBack: () => setAppMode('MENU'),
+                  hashPassword: hashPassword
+              })
+          )
+      ) : appMode === 'HOST' ? (
+        React.createElement('div', { className: "relative min-h-screen flex flex-col" },
              React.createElement(Background, null),
              React.createElement(ConnectionBadge, { isConnected: isConnected }),
              shouldShowBackButton() && React.createElement(BackButton, null),
@@ -978,35 +1291,30 @@ const App = () => {
                 React.createElement('button', { onClick: toggleMute, className: "bg-white/20 p-3 rounded-full hover:bg-white/40 transition-colors shadow-lg border border-white/10", title: isMuted ? "Ativar som" : "Mudo" }, isMuted ? '🔇' : '🔊')
              ),
              gameState === GameState.CREATE ? (
-                 React.createElement(QuizCreator, { onSave: startHost, onCancel: handleBackToMenu })
+                 React.createElement(QuizCreator, { onSave: startHost, onCancel: handleBackToMenu, onSaveQuiz: handleSaveQuiz, initialQuiz: quiz })
              ) : gameState === GameState.LOBBY ? (
                  React.createElement(Lobby, { pin: pin, players: players, onStart: hostStartGame, onCancel: handleBackToMenu })
              ) : (
                  React.createElement(HostGame, { quiz: quiz, players: players, currentQuestionIndex: currentQIndex, timeLeft: timeLeft, gameState: gameState, onNext: hostNextQuestion, onEndGame: handleBackToMenu })
              )
         )
-      );
-  }
-
-  const myPlayer = players.find(p => p.id === myPlayerId);
-  const myNickname = myPlayer ? myPlayer.nickname : "";
-  const myRank = players.sort((a,b) => b.score - a.score).findIndex(p => p.id === myPlayerId) + 1;
-
-  return (
-    React.createElement('div', { className: "relative min-h-screen text-white overflow-hidden" },
-        React.createElement(Background, null),
-        React.createElement(ConnectionBadge, { isConnected: isConnected }),
-        shouldShowBackButton() && React.createElement(BackButton, null),
-        React.createElement(PlayerView, { 
-            onJoin: playerJoin, 
-            onSubmit: playerSubmit, 
-            gameState: gameState, 
-            hasAnswered: hasAnswered,
-            score: myScore,
-            place: myRank,
-            nickname: myNickname, 
-            feedback: myFeedback
-        })
+      ) : ( // PLAYER MODE
+        React.createElement('div', null,
+            React.createElement(Background, null),
+            React.createElement(ConnectionBadge, { isConnected: isConnected }),
+            shouldShowBackButton() && React.createElement(BackButton, null),
+            React.createElement(PlayerView, { 
+                onJoin: playerJoin, 
+                onSubmit: playerSubmit, 
+                gameState: gameState, 
+                hasAnswered: hasAnswered,
+                score: myScore,
+                place: myRank,
+                nickname: myNickname, 
+                feedback: myFeedback
+            })
+        )
+      )
     )
   );
 };
