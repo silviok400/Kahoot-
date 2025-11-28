@@ -903,6 +903,7 @@ const App = () => {
   const channelRef = useRef(null);
   const timerRef = useRef(null);
   const playerTimerRef = useRef(null);
+  const playerTimeLeftRef = useRef(0);
 
   // Refs to hold current state for callbacks, preventing stale state issues.
   const quizRef = useRef(quiz);
@@ -1042,6 +1043,7 @@ const App = () => {
             if (playerIndex === -1) return prev;
             
             const player = prev[playerIndex];
+            // Use refs to get current question index safely inside callback
             const currentQ = quizRef.current?.questions[qIndexRef.current];
             
             if (!currentQ) return prev;
@@ -1076,16 +1078,18 @@ const App = () => {
   };
 
   const hostStartGame = () => {
-      hostStartCountdown();
+      hostStartCountdown(0);
   };
 
-  const hostStartCountdown = () => {
+  const hostStartCountdown = (indexOverride) => {
+      const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
+      
       playSfx(AUDIO.COUNTDOWN);
       setGameState(GameState.COUNTDOWN);
       setTimeLeft(5);
       // Reset player answers for the new question
       setPlayers(prev => prev.map(p => ({ ...p, lastAnswerShape: null })));
-      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.COUNTDOWN, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
       
       let count = 5;
       if (timerRef.current) clearInterval(timerRef.current);
@@ -1094,17 +1098,20 @@ const App = () => {
           setTimeLeft(count);
           if (count <= 0) {
               clearInterval(timerRef.current);
-              hostStartQuestion();
+              hostStartQuestion(activeIndex);
           }
       }, 1000);
   };
 
-  const hostStartQuestion = () => {
+  const hostStartQuestion = (indexOverride) => {
+      const activeIndex = typeof indexOverride === 'number' ? indexOverride : qIndexRef.current;
+
       setGameState(GameState.QUESTION);
-      const q = quiz.questions[currentQIndex];
+      // Use quizRef.current to avoid stale closure on 'quiz'
+      const q = quizRef.current.questions[activeIndex];
       setTimeLeft(q.timeLimit);
-      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.QUESTION, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
-      broadcast({ type: 'QUESTION_START', payload: { questionIndex: currentQIndex, timeLimit: q.timeLimit } });
+      broadcast({ type: 'SYNC_STATE', payload: { state: GameState.QUESTION, currentQuestionIndex: activeIndex, totalQuestions: quizRef.current.questions.length, pin: pinRef.current } });
+      broadcast({ type: 'QUESTION_START', payload: { questionIndex: activeIndex, timeLimit: q.timeLimit } });
 
       let count = q.timeLimit;
       if (timerRef.current) clearInterval(timerRef.current);
@@ -1134,8 +1141,9 @@ const App = () => {
           setGameState(GameState.PODIUM);
           broadcast({ type: 'SYNC_STATE', payload: { state: GameState.PODIUM, currentQuestionIndex: currentQIndex, totalQuestions: quiz.questions.length, pin } });
       } else {
-          setCurrentQIndex(prev => prev + 1);
-          hostStartCountdown();
+          const nextIndex = currentQIndex + 1;
+          setCurrentQIndex(nextIndex);
+          hostStartCountdown(nextIndex);
       }
   };
   
@@ -1197,10 +1205,12 @@ const App = () => {
           
           let count = msg.payload.timeLimit;
           setPlayerTimeLeft(count);
+          playerTimeLeftRef.current = count;
 
           playerTimerRef.current = setInterval(() => {
               count--;
               setPlayerTimeLeft(count);
+              playerTimeLeftRef.current = count;
               if (count <= 0) {
                   clearInterval(playerTimerRef.current);
               }
@@ -1242,7 +1252,7 @@ const App = () => {
       if (hasAnswered) return;
       setHasAnswered(true);
       if (playerTimerRef.current) clearInterval(playerTimerRef.current);
-      broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeft } }); 
+      broadcast({ type: 'SUBMIT_ANSWER', payload: { playerId: myPlayerId, answerId: shape, timeLeft: playerTimeLeftRef.current } }); 
   };
   
   const resetAllState = () => {
